@@ -22,6 +22,9 @@ router = APIRouter()
 ASSETS_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..", "static", "assets")
 )
+ASSETS_DIR_APP = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "app", "static", "assets")
+)
 ASSETS_DIR_ALT = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "static", "assets")
 )
@@ -83,7 +86,7 @@ def _resolve_audio_asset_path(audio_url: str) -> str | None:
     if not base:
         return None
 
-    dirs = [ASSETS_DIR, ASSETS_DIR_ALT]
+    dirs = [ASSETS_DIR_APP, ASSETS_DIR, ASSETS_DIR_ALT]
     names = [filename, base, f"{base}.mp3", f"{base}.wav", f"{base}.ogg", f"{base}.m4a"]
     seen = set()
     candidates: list[str] = []
@@ -166,7 +169,7 @@ def _debug_audio_slice(audio_url: str, resolved_path: str | None) -> None:
         base = ""
 
     if filename and base:
-        dirs = [ASSETS_DIR, ASSETS_DIR_ALT]
+        dirs = [ASSETS_DIR_APP, ASSETS_DIR, ASSETS_DIR_ALT]
         names = [filename, base, f"{base}.mp3", f"{base}.wav", f"{base}.ogg", f"{base}.m4a"]
         seen = set()
         for d in dirs:
@@ -180,6 +183,7 @@ def _debug_audio_slice(audio_url: str, resolved_path: str | None) -> None:
     print("AUDIO SLICE DEBUG")
     print("audioUrl:", audio_url)
     print("resolved path:", resolved_path)
+    print("ASSETS_DIR_APP:", ASSETS_DIR_APP)
     print("ASSETS_DIR:", ASSETS_DIR)
     print("ASSETS_DIR_ALT:", ASSETS_DIR_ALT)
     print("candidate paths (first 10):")
