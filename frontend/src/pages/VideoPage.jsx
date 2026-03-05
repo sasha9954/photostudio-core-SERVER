@@ -488,8 +488,6 @@ React.useEffect(() => {
       setUnlocks(un);
     }
     didHydrateRef.current = true;
-      hydratedForAccountRef.current = accountKey;
-  }, [KEY.photo, KEY.clips, KEY.state, KEY.unlock]);
     hydratedForAccountRef.current = accountKey;
   }, [KEY.photo, KEY.clips, KEY.state, KEY.unlock, KEY.meta, KEY.merged, accountKey]);
 
@@ -1316,14 +1314,6 @@ function toggleUltraRef(idx){
             </div>
             <button
               className={`videoBtn primary ${isEngineLocked?"disabled":""}`}
-              disabled={isEngineLocked}
-              onClick={async () => {
-                  try {
-                    if (isEngineLocked) return;
-                    setStatus("Запуск генерации…");
-                    const srcs = (engine === "STANDARD")
-                      ? [sanitizePersistentUrl(photoSlots[activePhotoIdx])].filter(Boolean)
-                      : photoSlots.map(sanitizePersistentUrl).filter(Boolean).slice(0, 3);
               disabled={isEngineLocked || isGenerating}
               onClick={async () => {
                   if(isGenerating) return;
@@ -1362,7 +1352,6 @@ function toggleUltraRef(idx){
                       count: 1
                     };
 
-                    const res = await fetchJson("/api/video/generate", {
                     const res = await fetchJson("/api/video/generateJob", {
                       method: "POST",
                       body: payload,
