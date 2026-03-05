@@ -22,6 +22,9 @@ router = APIRouter()
 ASSETS_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..", "static", "assets")
 )
+ASSETS_DIR_ALT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "static", "assets")
+)
 
 
 class ClipImageIn(BaseModel):
@@ -70,12 +73,26 @@ def _resolve_audio_asset_path(audio_url: str) -> str | None:
         return None
 
     filename = os.path.basename(path)
-    base = filename.split(".")[0]
+    if not filename:
+        return None
 
-    candidates = [filename, base, f"{base}.mp3", f"{base}.wav"]
+    base = os.path.splitext(filename)[0]
+    if not base:
+        return None
 
-    for name in candidates:
-        p = os.path.join(ASSETS_DIR, name)
+    dirs = [ASSETS_DIR, ASSETS_DIR_ALT]
+    names = [filename, base, f"{base}.mp3", f"{base}.wav", f"{base}.ogg", f"{base}.m4a"]
+    seen = set()
+    candidates: list[str] = []
+    for d in dirs:
+        for n in names:
+            p = os.path.join(d, n)
+            if p in seen:
+                continue
+            seen.add(p)
+            candidates.append(p)
+
+    for p in candidates:
         if os.path.isfile(p):
             return p
 
@@ -129,9 +146,35 @@ def _ffmpeg_audio_slice(input_path: str, output_path: str, t0: float, t1: float)
 
 
 def _debug_audio_slice(audio_url: str, resolved_path: str | None) -> None:
+    if (settings.PS_ENV or "").lower() != "dev":
+        return
+
+    candidate_debug = []
+    parsed = urlparse(audio_url or "")
+    path = parsed.path or ""
+    if path.startswith("/static/assets/"):
+        filename = os.path.basename(path)
+        base = os.path.splitext(filename)[0]
+        if filename and base:
+            dirs = [ASSETS_DIR, ASSETS_DIR_ALT]
+            names = [filename, base, f"{base}.mp3", f"{base}.wav", f"{base}.ogg", f"{base}.m4a"]
+            seen = set()
+            for d in dirs:
+                for n in names:
+                    p = os.path.join(d, n)
+                    if p in seen:
+                        continue
+                    seen.add(p)
+                    candidate_debug.append(p)
+
     print("AUDIO SLICE DEBUG")
     print("audioUrl:", audio_url)
     print("resolved path:", resolved_path)
+    print("ASSETS_DIR:", ASSETS_DIR)
+    print("ASSETS_DIR_ALT:", ASSETS_DIR_ALT)
+    print("candidate paths (first 10):")
+    for p in candidate_debug[:10]:
+        print(" -", p, "exists=", os.path.isfile(p))
 
 
 def _mock_scene_image(scene_id: str, width: int, height: int) -> str:
@@ -734,6 +777,9 @@ def clip_audio_slice(payload: AudioSliceIn):
     return {
         "ok": True,
         "audioUrl": payload.audioUrl,
+        "audioSliceUrl": _asset_url(filename),
         "sliceUrl": _asset_url(filename),
+        "t0": t0,
+        "t1": t1,
         "duration": round(t1 - t0, 3),
     }
