@@ -576,7 +576,13 @@ def clip_image(payload: ClipImageIn):
 
     width = max(256, min(2048, int(payload.width or 1024)))
     height = max(256, min(2048, int(payload.height or 1024)))
-    aspect_ratio = f"{width}:{height}"
+    # Normalize aspect label for prompt
+    if height > width:
+        aspect_ratio = "9:16"
+    elif width > height:
+        aspect_ratio = "16:9"
+    else:
+        aspect_ratio = "1:1"
 
     api_key = (settings.GEMINI_API_KEY or "").strip()
     if not api_key:
