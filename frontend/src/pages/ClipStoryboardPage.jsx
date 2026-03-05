@@ -1647,6 +1647,7 @@ const hydrate = useCallback(() => {
                         <div className="clipSB_videoPreviewWrap">
                           {scenarioSelected.videoUrl ? (
                             <video
+                              key={String(scenarioSelected.id || scenarioEditor.selected) + ":" + String(scenarioSelected.videoUrl || "")}
                               className="clipSB_videoPlayer"
                               controls
                               playsInline

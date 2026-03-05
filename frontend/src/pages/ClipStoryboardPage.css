@@ -788,6 +788,7 @@ body.ps_clip_fullscreen .mainCol {
   backdrop-filter: blur(2px);
   color: rgba(255,255,255,0.92);
   font-size: 13px;
+  pointer-events: none;
 }
 
 .clipSB_videoLoadingPulse{
