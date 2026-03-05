@@ -128,6 +128,12 @@ def _ffmpeg_audio_slice(input_path: str, output_path: str, t0: float, t1: float)
         return False, "ffmpeg_missing_install_and_add_to_PATH"
 
 
+def _debug_audio_slice(audio_url: str, resolved_path: str | None) -> None:
+    print("AUDIO SLICE DEBUG")
+    print("audioUrl:", audio_url)
+    print("resolved path:", resolved_path)
+
+
 def _mock_scene_image(scene_id: str, width: int, height: int) -> str:
     _ensure_assets_dir()
     w = max(256, min(2048, int(width or 1024)))
@@ -710,9 +716,7 @@ def clip_audio_slice(payload: AudioSliceIn):
 
     path = _resolve_audio_asset_path(payload.audioUrl)
     if not path:
-        print("AUDIO SLICE DEBUG")
-        print("audioUrl:", payload.audioUrl)
-        print("resolved path:", path)
+        _debug_audio_slice(payload.audioUrl, path)
         return JSONResponse(status_code=400, content={"ok": False, "code": "invalid_audioUrl", "hint": "audioUrl_must_point_to_/static/assets/<file>"})
 
     _ensure_assets_dir()
@@ -724,9 +728,7 @@ def clip_audio_slice(payload: AudioSliceIn):
 
     ok, err = _ffmpeg_audio_slice(path, output_path, t0, t1)
     if not ok:
-        print("AUDIO SLICE DEBUG")
-        print("audioUrl:", payload.audioUrl)
-        print("resolved path:", path)
+        _debug_audio_slice(payload.audioUrl, path)
         return JSONResponse(status_code=500, content={"ok": False, "code": "slice_failed", "hint": err})
 
     return {
