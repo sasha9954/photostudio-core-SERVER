@@ -723,6 +723,12 @@ const globalAudioUrl = useMemo(() => {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [lightboxUrl]);
 
+  useEffect(() => {
+    setScenarioVideoError("");
+    setScenarioVideoLoading(false);
+    setScenarioVideoOpen(false);
+  }, [scenarioEditor.selected]);
+
   const updateScenarioScene = useCallback((idx, patch) => {
     if (!scenarioNode?.id || idx < 0) return;
     setNodes((prev) => prev.map((n) => {
