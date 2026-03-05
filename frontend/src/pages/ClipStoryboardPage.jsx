@@ -111,6 +111,20 @@ function fmtTime(seconds) {
   return `${mm}:${String(ss).padStart(2, "0")}`;
 }
 
+const SCENE_IMAGE_FORMATS = ["9:16", "1:1", "16:9"];
+const DEFAULT_SCENE_IMAGE_FORMAT = "9:16";
+
+function normalizeSceneImageFormat(format) {
+  return SCENE_IMAGE_FORMATS.includes(format) ? format : DEFAULT_SCENE_IMAGE_FORMAT;
+}
+
+function getSceneImageSize(format) {
+  const normalized = normalizeSceneImageFormat(format);
+  if (normalized === "1:1") return { width: 1024, height: 1024 };
+  if (normalized === "16:9") return { width: 1344, height: 768 };
+  return { width: 768, height: 1344 };
+}
+
 async function uploadAsset(file) {
   const fd = new FormData();
   fd.append("file", file);
@@ -687,6 +701,7 @@ const scenarioScenes = useMemo(() => {
 }, [scenarioNode]);
 
 const scenarioSelected = scenarioScenes[scenarioEditor.selected] || null;
+const scenarioSelectedImageFormat = normalizeSceneImageFormat(scenarioSelected?.imageFormat);
   const [scenarioImageLoading, setScenarioImageLoading] = useState(false);
   const [scenarioImageError, setScenarioImageError] = useState("");
 
@@ -705,6 +720,8 @@ const scenarioSelected = scenarioScenes[scenarioEditor.selected] || null;
     if (!scenarioSelected) return;
     const sceneId = String(scenarioSelected.id || `s${scenarioEditor.selected + 1}`);
     const prompt = String(scenarioSelected.imagePrompt || scenarioSelected.sceneText || "").trim();
+    const imageFormat = normalizeSceneImageFormat(scenarioSelected.imageFormat);
+    const { width, height } = getSceneImageSize(imageFormat);
     if (!prompt) {
       setScenarioImageError("Добавьте Prompt (Image)");
       return;
@@ -717,11 +734,13 @@ const scenarioSelected = scenarioScenes[scenarioEditor.selected] || null;
         method: "POST",
         body: {
           sceneId,
-          prompt,
+          prompt: `${prompt}\nAspect ratio: ${imageFormat}`,
+          width,
+          height,
         },
       });
       if (!out?.ok || !out?.imageUrl) throw new Error(out?.hint || out?.code || "image_generation_failed");
-      updateScenarioScene(scenarioEditor.selected, { imageUrl: String(out.imageUrl || "") });
+      updateScenarioScene(scenarioEditor.selected, { imageUrl: String(out.imageUrl || ""), imageFormat });
     } catch (e) {
       console.error(e);
       setScenarioImageError(String(e?.message || e));
@@ -943,7 +962,7 @@ onParse: async (nodeId) => {
         const t0 = Number(s.start ?? s.t0 ?? 0);
         const t1 = Number(s.end ?? s.t1 ?? 0);
         const prompt = String(s.imagePrompt || s.prompt || s.sceneText || `Scene ${idx + 1}`);
-        return { id: s.id || `s${String(idx + 1).padStart(2, "0")}`, start: t0, end: t1, t0, t1, prompt, sceneText: s.sceneText || "", imagePrompt: s.imagePrompt || "", videoPrompt: s.videoPrompt || "", imageUrl: s.imageUrl || "", why: s.why || "" };
+        return { id: s.id || `s${String(idx + 1).padStart(2, "0")}`, start: t0, end: t1, t0, t1, prompt, sceneText: s.sceneText || "", imagePrompt: s.imagePrompt || "", videoPrompt: s.videoPrompt || "", imageUrl: s.imageUrl || "", imageFormat: normalizeSceneImageFormat(s.imageFormat), why: s.why || "" };
       })
       .filter((s) => Number.isFinite(s.t0) && Number.isFinite(s.t1) && s.t1 > s.t0);
 
@@ -1430,6 +1449,18 @@ const hydrate = useCallback(() => {
 
                     <div className="clipSB_scenarioEditRow">
                       <div className="clipSB_hint" style={{ marginBottom: 6 }}>Изображение сцены</div>
+                      <div className="clipSB_aspectPills" style={{ marginBottom: 8 }}>
+                        {SCENE_IMAGE_FORMATS.map((format) => (
+                          <button
+                            key={format}
+                            type="button"
+                            className={`clipSB_aspectPill${scenarioSelectedImageFormat === format ? " isActive" : ""}`}
+                            onClick={() => updateScenarioScene(scenarioEditor.selected, { imageFormat: format })}
+                          >
+                            {format}
+                          </button>
+                        ))}
+                      </div>
                       <div className="clipSB_scenarioPreviewWrap">
                         {scenarioSelected.imageUrl ? (
                           <img src={scenarioSelected.imageUrl} alt="scene preview" className="clipSB_scenarioPreview" />
