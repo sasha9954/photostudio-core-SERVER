@@ -900,12 +900,20 @@ onParse: async (nodeId) => {
               ...x,
               data: {
                 ...x.data,
+                scenes,
                 isParsing: false,
+                lastParseError: null,
+                lastPlanMeta: {
+                  engine: out.engine || "gemini",
+                  modelUsed: out.modelUsed || null,
+                  fallbackUsed: !!out.fallbackUsed,
+                  hint: out.hint || null,
+                  error: out.error || null,
+                },
                 scenePlan: {
                   engine: out.engine || "gemini",
-                                modelUsed: out.modelUsed || null,
-                                modelUsed: out.modelUsed || null,
-                                hint: out.hint || null,
+                  modelUsed: out.modelUsed || null,
+                  hint: out.hint || null,
                   audioDuration,
                   scenes,
                   refs: { refCharacter, refLocation, refStyle },
