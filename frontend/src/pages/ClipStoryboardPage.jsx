@@ -730,7 +730,7 @@ const scenarioSelectedImageFormat = normalizeSceneImageFormat(scenarioSelected?.
     setScenarioImageLoading(true);
     setScenarioImageError("");
     try {
-      const out = await fetchJson(`${API_BASE}/api/clip/image`, {
+      const out = await fetchJson(`/api/clip/image`, {
         method: "POST",
         body: {
           sceneId,
