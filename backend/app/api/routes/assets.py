@@ -118,6 +118,9 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
     if ext not in allowed:
         raise HTTPException(status_code=400, detail=f"unsupported_ext:{ext or 'none'}")
 
+    if ct.startswith("audio/") or ext in {".mp3", ".wav", ".ogg", ".m4a"}:
+        ext = ".mp3"
+
     hid = _hash_bytes(raw)
     fn = f"{hid}{ext}"
     out_path = os.path.join(ASSETS_DIR, fn)
@@ -173,6 +176,8 @@ def _ensure_dir():
 
 def _guess_ext(mime: str) -> str:
     m = (mime or "").lower()
+    if m.startswith("audio/"):
+        return ".mp3"
     if m == "image/png":
         return ".png"
     if m in ("image/jpeg", "image/jpg"):
