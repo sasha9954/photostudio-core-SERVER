@@ -688,6 +688,11 @@ const scenarioScenes = useMemo(() => {
 
 const scenarioSelected = scenarioScenes[scenarioEditor.selected] || null;
   const [edges, setEdges, onEdgesChange] = useEdgesState(defaultEdges);
+  const edgesRef = useRef([]);
+
+  useEffect(() => {
+    edgesRef.current = edges || [];
+  }, [edges]);
 
 
   const removeNode = useCallback((nodeId) => {
@@ -926,7 +931,7 @@ onParse: async (nodeId) => {
       );
 
       // flood to storyboard/results node
-      const targets = (edges || []).filter((e) => e.source === nodeId).map((e) => e.target);
+      const targets = (edgesRef.current || []).filter((e) => e.source === nodeId).map((e) => e.target);
       return updated.map((x) =>
         targets.includes(x.id) && (x.type === "storyboardNode" || x.type === "resultsNode")
           ? { ...x, data: { ...x.data, scenes } }
