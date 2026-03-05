@@ -61,32 +61,25 @@ def _save_bytes_as_asset(raw: bytes, ext: str = "png") -> str:
 
 
 def _resolve_audio_asset_path(audio_url: str) -> str | None:
-    raw = (audio_url or "").strip()
-    if not raw:
+    if not audio_url:
         return None
 
-    parsed = urlparse(raw)
-    path = parsed.path or raw
-    markers = ["/static/assets/", "/assets/"]
-
-    rel = None
-    for marker in markers:
-        if path.startswith(marker):
-            rel = path[len(marker) :]
-            break
-        if marker in path:
-            rel = path.split(marker, 1)[1]
-            break
-
-    if rel is None:
+    parsed = urlparse(audio_url)
+    path = parsed.path
+    if not path.startswith("/static/assets/"):
         return None
 
-    filename = os.path.basename(rel)
-    if not filename:
-        return None
+    filename = os.path.basename(path)
+    base = filename.split(".")[0]
 
-    local_path = os.path.join(ASSETS_DIR, filename)
-    return local_path if os.path.isfile(local_path) else None
+    candidates = [filename, base, f"{base}.mp3", f"{base}.wav"]
+
+    for name in candidates:
+        p = os.path.join(ASSETS_DIR, name)
+        if os.path.isfile(p):
+            return p
+
+    return None
 
 
 def _ffmpeg_audio_slice(input_path: str, output_path: str, t0: float, t1: float) -> tuple[bool, str]:
@@ -712,11 +705,14 @@ def clip_audio_slice(payload: AudioSliceIn):
         return JSONResponse(status_code=400, content={"ok": False, "code": "bad_t0", "hint": "t0_must_be_non_negative"})
     if t1 <= t0:
         return JSONResponse(status_code=400, content={"ok": False, "code": "bad_range", "hint": "t1_must_be_greater_than_t0"})
-    if (t1 - t0) > 15.0:
-        return JSONResponse(status_code=400, content={"ok": False, "code": "slice_too_long", "hint": "max_slice_sec_15"})
+    if (t1 - t0) > 300.0:
+        return JSONResponse(status_code=400, content={"ok": False, "code": "slice_too_long", "hint": "max_slice_sec_300"})
 
-    input_path = _resolve_audio_asset_path(payload.audioUrl)
-    if not input_path:
+    path = _resolve_audio_asset_path(payload.audioUrl)
+    if not path:
+        print("AUDIO SLICE DEBUG")
+        print("audioUrl:", payload.audioUrl)
+        print("resolved path:", path)
         return JSONResponse(status_code=400, content={"ok": False, "code": "invalid_audioUrl", "hint": "audioUrl_must_point_to_/static/assets/<file>"})
 
     _ensure_assets_dir()
@@ -726,14 +722,16 @@ def clip_audio_slice(payload: AudioSliceIn):
     filename = f"clip_audio_{safe_scene}_{t0_ms}_{t1_ms}_{uuid4().hex[:8]}.mp3"
     output_path = os.path.join(ASSETS_DIR, filename)
 
-    ok, err = _ffmpeg_audio_slice(input_path, output_path, t0, t1)
+    ok, err = _ffmpeg_audio_slice(path, output_path, t0, t1)
     if not ok:
+        print("AUDIO SLICE DEBUG")
+        print("audioUrl:", payload.audioUrl)
+        print("resolved path:", path)
         return JSONResponse(status_code=500, content={"ok": False, "code": "slice_failed", "hint": err})
 
     return {
         "ok": True,
-        "audioSliceUrl": _asset_url(filename),
-        "sceneId": scene_id,
-        "t0": t0,
-        "t1": t1,
+        "audioUrl": payload.audioUrl,
+        "sliceUrl": _asset_url(filename),
+        "duration": round(t1 - t0, 3),
     }
