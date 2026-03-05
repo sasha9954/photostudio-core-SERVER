@@ -1394,6 +1394,7 @@ const hydrate = useCallback(() => {
                           alt="scene"
                           className="clipSB_scenarioThumb"
                           onClick={(e) => {
+                            e.preventDefault();
                             e.stopPropagation();
                             setLightboxUrl(s.imageUrl);
                           }}
