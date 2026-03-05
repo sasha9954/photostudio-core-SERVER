@@ -576,6 +576,7 @@ def clip_image(payload: ClipImageIn):
 
     width = max(256, min(2048, int(payload.width or 1024)))
     height = max(256, min(2048, int(payload.height or 1024)))
+    aspect_ratio = f"{width}:{height}"
 
     api_key = (settings.GEMINI_API_KEY or "").strip()
     if not api_key:
@@ -587,7 +588,7 @@ def clip_image(payload: ClipImageIn):
         body = {
             "contents": [{
                 "role": "user",
-                "parts": [{"text": f"Create one cinematic frame for storyboard scene {scene_id}. Style: {style}. {prompt}"}],
+                "parts": [{"text": f"Create one cinematic frame for storyboard scene {scene_id}. Style: {style}. Aspect ratio: {aspect_ratio}. Resolution: {width}x{height}. {prompt}"}],
             }],
             "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
         }
