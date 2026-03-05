@@ -85,24 +85,28 @@ def _resolve_audio_asset_path(audio_url: str) -> str | None:
 
 
 def _ffmpeg_audio_slice(input_path: str, output_path: str, t0: float, t1: float) -> tuple[bool, str]:
+    dur = max(0.0, t1 - t0)
     first_cmd = [
         "ffmpeg", "-y", "-ss", str(t0), "-to", str(t1), "-i", input_path,
         "-c", "copy", output_path,
     ]
-    first = subprocess.run(first_cmd, capture_output=True, text=True)
-    if first.returncode == 0 and os.path.isfile(output_path):
-        return True, ""
+    try:
+        first = subprocess.run(first_cmd, capture_output=True, text=True)
+        if first.returncode == 0 and os.path.isfile(output_path):
+            return True, ""
 
-    fallback_cmd = [
-        "ffmpeg", "-y", "-ss", str(t0), "-to", str(t1), "-i", input_path,
-        "-vn", "-acodec", "libmp3lame", "-b:a", "192k", output_path,
-    ]
-    fallback = subprocess.run(fallback_cmd, capture_output=True, text=True)
-    if fallback.returncode == 0 and os.path.isfile(output_path):
-        return True, ""
+        fallback_cmd = [
+            "ffmpeg", "-y", "-i", input_path, "-ss", str(t0), "-t", str(dur),
+            "-vn", "-acodec", "libmp3lame", "-b:a", "192k", output_path,
+        ]
+        fallback = subprocess.run(fallback_cmd, capture_output=True, text=True)
+        if fallback.returncode == 0 and os.path.isfile(output_path):
+            return True, ""
 
-    err = (fallback.stderr or first.stderr or "ffmpeg_failed").strip()
-    return False, err[:500]
+        err = (fallback.stderr or first.stderr or "ffmpeg_failed").strip()
+        return False, err[:500]
+    except FileNotFoundError:
+        return False, "ffmpeg_missing_install_and_add_to_PATH"
 
 
 def _mock_scene_image(scene_id: str, width: int, height: int) -> str:
@@ -676,8 +680,8 @@ def clip_audio_slice(payload: AudioSliceIn):
     if not scene_id:
         return JSONResponse(status_code=400, content={"ok": False, "code": "BAD_REQUEST", "hint": "sceneId_required"})
 
-    t0 = float(payload.t0)
-    t1 = float(payload.t1)
+    t0 = round(float(payload.t0), 3)
+    t1 = round(float(payload.t1), 3)
     if t0 < 0:
         return JSONResponse(status_code=400, content={"ok": False, "code": "bad_t0", "hint": "t0_must_be_non_negative"})
     if t1 <= t0:
