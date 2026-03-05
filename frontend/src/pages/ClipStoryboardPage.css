@@ -534,6 +534,25 @@ body.ps_clip_fullscreen .mainCol {
   padding: 12px;
   border-right: 1px solid rgba(255,255,255,0.08);
   overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.14) rgba(255,255,255,0.05);
+}
+
+.clipSB_scenarioList::-webkit-scrollbar{
+  width: 8px;
+}
+
+.clipSB_scenarioList::-webkit-scrollbar-thumb{
+  background: rgba(255,255,255,0.14);
+  border-radius: 999px;
+}
+
+.clipSB_scenarioList::-webkit-scrollbar-thumb:hover{
+  background: rgba(255,255,255,0.18);
+}
+
+.clipSB_scenarioList::-webkit-scrollbar-track{
+  background: rgba(255,255,255,0.05);
 }
 
 .clipSB_scenarioItem{
@@ -560,6 +579,7 @@ body.ps_clip_fullscreen .mainCol {
   object-fit: cover;
   flex: 0 0 52px;
   background: rgba(255,255,255,0.04);
+  cursor: zoom-in;
 }
 .clipSB_scenarioThumbPlaceholder{
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.10);
@@ -602,6 +622,25 @@ body.ps_clip_fullscreen .mainCol {
   padding: 14px;
   overflow: auto;
   min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.14) rgba(255,255,255,0.05);
+}
+
+.clipSB_scenarioEdit::-webkit-scrollbar{
+  width: 8px;
+}
+
+.clipSB_scenarioEdit::-webkit-scrollbar-thumb{
+  background: rgba(255,255,255,0.14);
+  border-radius: 999px;
+}
+
+.clipSB_scenarioEdit::-webkit-scrollbar-thumb:hover{
+  background: rgba(255,255,255,0.18);
+}
+
+.clipSB_scenarioEdit::-webkit-scrollbar-track{
+  background: rgba(255,255,255,0.05);
 }
 
 .clipSB_scenarioEditRow{
@@ -647,6 +686,7 @@ body.ps_clip_fullscreen .mainCol {
   max-height: 280px;
   object-fit: contain;
   display: block;
+  cursor: zoom-in;
 }
 .clipSB_scenarioPreviewPlaceholder{
   min-height: 180px;
@@ -654,6 +694,26 @@ body.ps_clip_fullscreen .mainCol {
   place-items: center;
   color: rgba(255,255,255,0.55);
   font-size: 13px;
+}
+
+.clipSB_lightbox{
+  position: fixed;
+  inset: 0;
+  z-index: 7000;
+  background: rgba(0,0,0,0.78);
+  backdrop-filter: blur(6px);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  cursor: pointer;
+}
+
+.clipSB_lightboxImg{
+  max-width: 96vw;
+  max-height: 92vh;
+  border-radius: 14px;
+  box-shadow: 0 20px 80px rgba(0,0,0,0.6);
+  object-fit: contain;
 }
 
 .clipSB_kv{

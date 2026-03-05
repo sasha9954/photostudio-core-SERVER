@@ -704,6 +704,16 @@ const scenarioSelected = scenarioScenes[scenarioEditor.selected] || null;
 const scenarioSelectedImageFormat = normalizeSceneImageFormat(scenarioSelected?.imageFormat);
   const [scenarioImageLoading, setScenarioImageLoading] = useState(false);
   const [scenarioImageError, setScenarioImageError] = useState("");
+  const [lightboxUrl, setLightboxUrl] = useState("");
+
+  useEffect(() => {
+    if (!lightboxUrl) return;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") setLightboxUrl("");
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [lightboxUrl]);
 
   const updateScenarioScene = useCallback((idx, patch) => {
     if (!scenarioNode?.id || idx < 0) return;
@@ -1349,7 +1359,10 @@ const hydrate = useCallback(() => {
 
       
       {scenarioEditor.open ? (
-        <div className="clipSB_scenarioOverlay" onClick={() => setScenarioEditor((s) => ({ ...s, open: false }))}>
+        <div className="clipSB_scenarioOverlay" onClick={() => {
+          setScenarioEditor((s) => ({ ...s, open: false }));
+          setLightboxUrl("");
+        }}>
           <div className="clipSB_scenarioPanel" onClick={(e) => e.stopPropagation()}>
             <div className="clipSB_scenarioHeader">
               <div className="clipSB_scenarioTitle">SCENARIO</div>
@@ -1357,7 +1370,10 @@ const hydrate = useCallback(() => {
                 <div className="clipSB_scenarioMeta">
                   {scenarioScenes.length} сцен
                 </div>
-                <button className="clipSB_iconBtn" onClick={() => setScenarioEditor((s) => ({ ...s, open: false }))} aria-label="Закрыть">
+                <button className="clipSB_iconBtn" onClick={() => {
+                  setScenarioEditor((s) => ({ ...s, open: false }));
+                  setLightboxUrl("");
+                }} aria-label="Закрыть">
                   ✕
                 </button>
               </div>
@@ -1373,7 +1389,15 @@ const hydrate = useCallback(() => {
                   >
                     <div className="clipSB_scenarioItemInner">
                       {s.imageUrl ? (
-                        <img src={s.imageUrl} alt="scene" className="clipSB_scenarioThumb" />
+                        <img
+                          src={s.imageUrl}
+                          alt="scene"
+                          className="clipSB_scenarioThumb"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLightboxUrl(s.imageUrl);
+                          }}
+                        />
                       ) : (
                         <div className="clipSB_scenarioThumb clipSB_scenarioThumbPlaceholder" />
                       )}
@@ -1463,7 +1487,12 @@ const hydrate = useCallback(() => {
                       </div>
                       <div className="clipSB_scenarioPreviewWrap">
                         {scenarioSelected.imageUrl ? (
-                          <img src={scenarioSelected.imageUrl} alt="scene preview" className="clipSB_scenarioPreview" />
+                          <img
+                            src={scenarioSelected.imageUrl}
+                            alt="scene preview"
+                            className="clipSB_scenarioPreview"
+                            onClick={() => setLightboxUrl(scenarioSelected.imageUrl)}
+                          />
                         ) : (
                           <div className="clipSB_scenarioPreview clipSB_scenarioPreviewPlaceholder">Превью отсутствует</div>
                         )}
@@ -1495,6 +1524,17 @@ const hydrate = useCallback(() => {
               </div>
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {lightboxUrl ? (
+        <div className="clipSB_lightbox" onClick={() => setLightboxUrl("")}>
+          <img
+            className="clipSB_lightboxImg"
+            src={lightboxUrl}
+            alt="Full preview"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       ) : null}
 
