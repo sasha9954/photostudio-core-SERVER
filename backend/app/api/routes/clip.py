@@ -544,20 +544,41 @@ def clip_plan(payload: BrainIn):
 - Если текста нет — всё равно делай осмысленный клиповый план по музыке.
 
 ПРАВИЛА ПО ВОКАЛУ И LIPSYNC:
-A) Если в аудио есть вокал:
+A) ПРИОРИТЕТ АНАЛИЗА ВОКАЛА:
+- Если textType_hint=lyrics ИЛИ audioType_hint=song ИЛИ wantLipSync=true,
+  сначала найди вокальные фразы (границы строк/фраз/дыхания),
+  и только потом уточняй переходы по ритму/биту.
+- В этих режимах нельзя строить план только от ритма, игнорируя вокальные фразы.
+
+B) Если в аудио есть вокал:
 - различай инструментальные и вокальные отрезки;
 - отмечай hasVocals=true только там, где реально слышен голос.
 
-B) Если сцена lipSync (isLipSync=true или sceneType=lipSync):
+- Если wantLipSync=true и в аудио есть вокал:
+  MUST включить минимум 1 lipSync сцену,
+  предпочтительно 1–2 lipSync сцены в подходящих местах трека;
+  каждая lipSync сцена должна быть вокруг ЦЕЛЬНОЙ вокальной фразы.
+
+C) Если сцена lipSync (isLipSync=true или sceneType=lipSync):
 - выбирай t0/t1 только вокруг целой вокальной фразы;
 - начало не должно попадать в середину слова;
 - конец не должен обрывать слово/слог;
-- добавь небольшой pre-roll до старта пения и небольшой tail после конца фразы;
+- для lipSync тайминга используй ЧИСЛЕННЫЕ ГРАНИЦЫ:
+  t0 = start_of_vocal_phrase - 0.15..0.30 sec,
+  t1 = end_of_vocal_phrase + 0.10..0.25 sec;
 - lyricFragment должен содержать короткий фрагмент исполняемой фразы;
 - sceneText и videoPrompt ОБЯЗАНЫ явно описывать singing performance;
 - в videoPrompt укажи эмоцию, интенсивность, дистанцию камеры и mouth-visible framing.
 
-C) Если lipSync=false:
+- ЖЁСТКАЯ СОГЛАСОВАННОСТЬ ПОЛЕЙ ДЛЯ LIPSYNC:
+  если isLipSync=true, то:
+  * sceneType MUST быть "lipSync"
+  * hasVocals MUST быть true
+  * performanceType MUST быть "singing_performance"
+  * shotType MUST быть одним из: medium | closeup | mouth_closeup
+  * sceneText/videoPrompt MUST описывать singing performance
+
+D) Если lipSync=false:
 - ориентируй t0/t1 на ритм, бит, переходы, дропы и изменение энергии;
 - выбирай музыкально цельные куски, не режь между сильными долями без причины.
 
@@ -590,7 +611,8 @@ JSON СХЕМА:
 - start/end в секундах, с 1–2 знаками после запятой.
 - end строго > start.
 - Последняя сцена end = {duration:.1f}.
-- Если isLipSync=true: performanceType="singing_performance" и shotType должен обеспечивать видимость рта.
+- Если isLipSync=true: sceneType="lipSync", hasVocals=true, performanceType="singing_performance",
+  shotType из medium|closeup|mouth_closeup, и sceneText/videoPrompt про singing performance.
 """
 
     ref_hints = []
@@ -611,6 +633,8 @@ JSON СХЕМА:
     if text_type_hint:
         extra += f"\nПодсказка о типе текста от UI: {text_type_hint}"
     extra += f"\nФлаг wantLipSync от UI: {want_lipsync}"
+    if text_type_hint == "lyrics" or audio_type_hint == "song" or want_lipsync:
+        extra += "\nПРИОРИТЕТ: сначала найди и нарежь вокальные фразы, затем корректируй по ритму/биту."
 
     parts = [{"text": rules + extra}]
 

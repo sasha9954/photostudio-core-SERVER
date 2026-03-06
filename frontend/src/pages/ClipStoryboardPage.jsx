@@ -1742,6 +1742,21 @@ const hydrate = useCallback(() => {
                       />
                     </div>
 
+                    <div className="clipSB_scenarioEditRow">
+                      <div className="clipSB_hint">Scene decision debug</div>
+                      <div className="clipSB_kv" style={{ display: "grid", gridTemplateColumns: "160px 1fr", rowGap: 6, columnGap: 8, alignItems: "start" }}>
+                        <span>audioType</span><span>{String(scenarioSelected.audioType || "") || "—"}</span>
+                        <span>sceneType</span><span>{String(scenarioSelected.sceneType || "") || "—"}</span>
+                        <span>hasVocals</span><span>{String(!!scenarioSelected.hasVocals)}</span>
+                        <span>isLipSync</span><span>{String(!!scenarioSelected.isLipSync || !!scenarioSelected.lipSync)}</span>
+                        <span>lyricFragment</span><span>{String(scenarioSelected.lyricFragment || "") || "—"}</span>
+                        <span>timingReason</span><span>{String(scenarioSelected.timingReason || "") || "—"}</span>
+                        <span>beatAnchor</span><span>{String(scenarioSelected.beatAnchor || "") || "—"}</span>
+                        <span>performanceType</span><span>{String(scenarioSelected.performanceType || "") || "—"}</span>
+                        <span>shotType</span><span>{String(scenarioSelected.shotType || "") || "—"}</span>
+                      </div>
+                    </div>
+
                     <div className="clipSB_scenarioEditRow clipSB_audioDebugBlock">
                       <div className="clipSB_audioDebugTitle">AUDIO SLICE DEBUG</div>
                       <div className="clipSB_audioDebugSceneLabel">
