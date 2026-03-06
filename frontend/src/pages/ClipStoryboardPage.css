@@ -825,6 +825,47 @@ body.ps_clip_fullscreen .mainCol {
   overflow-wrap: anywhere;
 }
 
+.clipSB_audioDebugBlock{
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.03);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+}
+
+.clipSB_audioDebugTitle{
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  margin-bottom: 4px;
+}
+
+.clipSB_audioDebugSceneLabel{
+  font-size: 12px;
+  opacity: 0.85;
+  margin-bottom: 10px;
+}
+
+.clipSB_audioDebugSection{
+  margin-bottom: 10px;
+}
+
+.clipSB_audioPlayer{
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.clipSB_audioDebugUrl{
+  font-size: 11px;
+  opacity: 0.75;
+  overflow-wrap: anywhere;
+}
+
+.clipSB_audioDebugGrid{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+
 @keyframes clipSBVideoPulse {
   0%, 100% { opacity: 0.65; }
   50% { opacity: 1; }

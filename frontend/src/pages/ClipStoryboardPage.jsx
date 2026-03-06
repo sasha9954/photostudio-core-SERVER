@@ -111,6 +111,23 @@ function fmtTime(seconds) {
   return `${mm}:${String(ss).padStart(2, "0")}`;
 }
 
+function fmtTimeWithMs(seconds) {
+  const s = Number(seconds);
+  if (!Number.isFinite(s)) return "—";
+  const safe = Math.max(0, s);
+  const mm = Math.floor(safe / 60);
+  const ss = Math.floor(safe % 60);
+  const ms = Math.floor((safe - Math.floor(safe)) * 1000);
+  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
+}
+
+function fmtSecAndMs(seconds) {
+  const s = Number(seconds);
+  if (!Number.isFinite(s)) return "—";
+  const ms = Math.round(s * 1000);
+  return `${s.toFixed(3)}s (${ms}ms)`;
+}
+
 const SCENE_IMAGE_FORMATS = ["9:16", "1:1", "16:9"];
 const DEFAULT_SCENE_IMAGE_FORMAT = "9:16";
 
@@ -702,6 +719,12 @@ const scenarioScenes = useMemo(() => {
 
 const scenarioSelected = scenarioScenes[scenarioEditor.selected] || null;
 const scenarioSelectedImageFormat = normalizeSceneImageFormat(scenarioSelected?.imageFormat);
+const scenarioSelectedIndexLabel = Number.isFinite(scenarioEditor.selected) ? scenarioEditor.selected + 1 : 0;
+const scenarioSelectedT0 = Number(scenarioSelected?.t0 ?? scenarioSelected?.start ?? 0);
+const scenarioSelectedT1 = Number(scenarioSelected?.t1 ?? scenarioSelected?.end ?? 0);
+const scenarioSelectedExpectedSliceSec = Number(
+  scenarioSelected?.audioSliceExpectedDurationSec ?? Math.max(0, scenarioSelectedT1 - scenarioSelectedT0)
+);
 const globalAudioUrl = useMemo(() => {
   const audioNodeWithUrl = nodes.find((n) => n.type === "audioNode" && n?.data?.audioUrl);
   return audioNodeWithUrl?.data?.audioUrl ? String(audioNodeWithUrl.data.audioUrl) : "";
@@ -796,7 +819,17 @@ const globalAudioUrl = useMemo(() => {
         body: { sceneId, t0, t1, audioUrl: globalAudioUrl },
       });
       if (!out?.ok || !out?.audioSliceUrl) throw new Error(out?.hint || out?.code || "audio_slice_failed");
-      updateScenarioScene(scenarioEditor.selected, { audioSliceUrl: String(out.audioSliceUrl || "") });
+      const outT0 = Number(out?.t0 ?? t0);
+      const outT1 = Number(out?.t1 ?? t1);
+      const expectedDuration = Math.max(0, outT1 - outT0);
+      updateScenarioScene(scenarioEditor.selected, {
+        audioSliceUrl: String(out.audioSliceUrl || ""),
+        audioSliceT0: outT0,
+        audioSliceT1: outT1,
+        audioSliceExpectedDurationSec: expectedDuration,
+        audioSliceActualDurationSec: null,
+        audioSliceLoadError: "",
+      });
     } catch (e) {
       console.error(e);
       setScenarioVideoError(String(e?.message || e));
@@ -804,6 +837,25 @@ const globalAudioUrl = useMemo(() => {
       setScenarioVideoLoading(false);
     }
   }, [globalAudioUrl, scenarioEditor.selected, scenarioSelected, updateScenarioScene]);
+
+  const handleScenarioSliceLoadedMetadata = useCallback((event) => {
+    if (!scenarioSelected) return;
+    const duration = Number(event?.currentTarget?.duration);
+    updateScenarioScene(scenarioEditor.selected, {
+      audioSliceActualDurationSec: Number.isFinite(duration) ? duration : null,
+      audioSliceLoadError: "",
+    });
+  }, [scenarioEditor.selected, scenarioSelected, updateScenarioScene]);
+
+  const handleScenarioSliceAudioError = useCallback(() => {
+    if (!scenarioSelected) return;
+    const msg = "Не удалось загрузить вырезанный mp3-срез. Проверьте URL и наличие файла.";
+    updateScenarioScene(scenarioEditor.selected, {
+      audioSliceActualDurationSec: null,
+      audioSliceLoadError: msg,
+    });
+    setScenarioVideoError(msg);
+  }, [scenarioEditor.selected, scenarioSelected, updateScenarioScene]);
 
   const handleScenarioGenerateVideo = useCallback(async () => {
     if (!scenarioSelected?.imageUrl) return;
@@ -1078,7 +1130,27 @@ onParse: async (nodeId) => {
         const t0 = Number(s.start ?? s.t0 ?? 0);
         const t1 = Number(s.end ?? s.t1 ?? 0);
         const prompt = String(s.imagePrompt || s.prompt || s.sceneText || `Scene ${idx + 1}`);
-        return { id: s.id || `s${String(idx + 1).padStart(2, "0")}`, start: t0, end: t1, t0, t1, prompt, sceneText: s.sceneText || "", imagePrompt: s.imagePrompt || "", videoPrompt: s.videoPrompt || "", imageUrl: s.imageUrl || "", imageFormat: normalizeSceneImageFormat(s.imageFormat), audioSliceUrl: s.audioSliceUrl || "", videoUrl: s.videoUrl || "", why: s.why || "" };
+        return {
+          id: s.id || `s${String(idx + 1).padStart(2, "0")}`,
+          start: t0,
+          end: t1,
+          t0,
+          t1,
+          prompt,
+          sceneText: s.sceneText || "",
+          imagePrompt: s.imagePrompt || "",
+          videoPrompt: s.videoPrompt || "",
+          imageUrl: s.imageUrl || "",
+          imageFormat: normalizeSceneImageFormat(s.imageFormat),
+          audioSliceUrl: s.audioSliceUrl || "",
+          audioSliceT0: Number(s.audioSliceT0 ?? t0),
+          audioSliceT1: Number(s.audioSliceT1 ?? t1),
+          audioSliceExpectedDurationSec: Number(s.audioSliceExpectedDurationSec ?? Math.max(0, t1 - t0)),
+          audioSliceActualDurationSec: Number.isFinite(Number(s.audioSliceActualDurationSec)) ? Number(s.audioSliceActualDurationSec) : null,
+          audioSliceLoadError: s.audioSliceLoadError || "",
+          videoUrl: s.videoUrl || "",
+          why: s.why || "",
+        };
       })
       .filter((s) => Number.isFinite(s.t0) && Number.isFinite(s.t1) && s.t1 > s.t0);
 
@@ -1639,6 +1711,58 @@ const hydrate = useCallback(() => {
                         value={scenarioSelected.videoPrompt || ""}
                         onChange={(e) => updateScenarioScene(scenarioEditor.selected, { videoPrompt: e.target.value })}
                       />
+                    </div>
+
+                    <div className="clipSB_scenarioEditRow clipSB_audioDebugBlock">
+                      <div className="clipSB_audioDebugTitle">AUDIO SLICE DEBUG</div>
+                      <div className="clipSB_audioDebugSceneLabel">
+                        Scene {scenarioSelectedIndexLabel} · {fmtTimeWithMs(scenarioSelectedT0)} → {fmtTimeWithMs(scenarioSelectedT1)}
+                      </div>
+
+                      <div className="clipSB_audioDebugSection">
+                        <div className="clipSB_hint" style={{ marginBottom: 6 }}>Полный трек (original audioUrl)</div>
+                        {globalAudioUrl ? (
+                          <audio
+                            key={`full-track-${globalAudioUrl}`}
+                            className="clipSB_audioPlayer"
+                            controls
+                            preload="metadata"
+                            src={globalAudioUrl}
+                          />
+                        ) : (
+                          <div className="clipSB_hint" style={{ color: "#ffb4b4" }}>Полный трек не найден: загрузите аудио в Audio node.</div>
+                        )}
+                        <div className="clipSB_audioDebugUrl">{globalAudioUrl || "—"}</div>
+                      </div>
+
+                      <div className="clipSB_audioDebugSection">
+                        <div className="clipSB_hint" style={{ marginBottom: 6 }}>Срез по сцене (audioSliceUrl)</div>
+                        {scenarioSelected.audioSliceUrl ? (
+                          <audio
+                            key={`slice-${String(scenarioSelected.id || scenarioEditor.selected)}-${String(scenarioSelected.audioSliceUrl || "")}`}
+                            className="clipSB_audioPlayer"
+                            controls
+                            preload="metadata"
+                            src={scenarioSelected.audioSliceUrl}
+                            onLoadedMetadata={handleScenarioSliceLoadedMetadata}
+                            onError={handleScenarioSliceAudioError}
+                          />
+                        ) : (
+                          <div className="clipSB_hint">Срез ещё не создан. Нажмите «Взять аудио».</div>
+                        )}
+                        <div className="clipSB_audioDebugUrl">{scenarioSelected.audioSliceUrl || "—"}</div>
+                      </div>
+
+                      <div className="clipSB_audioDebugGrid">
+                        <div className="clipSB_videoKv"><span>t0</span><span>{fmtSecAndMs(Number(scenarioSelected.audioSliceT0 ?? scenarioSelectedT0))}</span></div>
+                        <div className="clipSB_videoKv"><span>t1</span><span>{fmtSecAndMs(Number(scenarioSelected.audioSliceT1 ?? scenarioSelectedT1))}</span></div>
+                        <div className="clipSB_videoKv"><span>expected duration</span><span>{fmtSecAndMs(scenarioSelectedExpectedSliceSec)}</span></div>
+                        <div className="clipSB_videoKv"><span>actual duration</span><span>{fmtSecAndMs(Number(scenarioSelected.audioSliceActualDurationSec))}</span></div>
+                      </div>
+
+                      {scenarioSelected.audioSliceLoadError ? (
+                        <div className="clipSB_hint" style={{ color: "#ff8a8a", marginTop: 6 }}>{scenarioSelected.audioSliceLoadError}</div>
+                      ) : null}
                     </div>
 
                     {scenarioVideoOpen ? (
