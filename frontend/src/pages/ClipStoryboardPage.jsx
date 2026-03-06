@@ -522,11 +522,28 @@ function BrainNode({ id, data }) {
 }
 
 function RefNode({ id, data }) {
+  const inputRef = useRef(null);
   const title = data?.title || "REFERENCE";
   const icon = data?.icon || "📷";
   const kind = data?.kind || "ref";
-  const url = data?.url || "";
-  const name = data?.name || "";
+  const maxFiles = kind === "ref_style" ? 1 : 5;
+  const refsRaw = Array.isArray(data?.refs) ? data.refs : (data?.url ? [{ url: data.url, name: data?.name || "" }] : []);
+  const refs = refsRaw
+    .map((item) => ({ url: String(item?.url || "").trim(), name: String(item?.name || "").trim() }))
+    .filter((item) => !!item.url);
+  const canAddMore = refs.length < maxFiles;
+
+  const openPicker = () => {
+    if (!canAddMore) return;
+    inputRef.current?.click();
+  };
+
+  const onInputChange = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    await data?.onPickImage?.(id, f);
+    e.target.value = "";
+  };
 
   return (
     <>
@@ -537,17 +554,56 @@ function RefNode({ id, data }) {
         icon={<span aria-hidden>{icon}</span>}
         className="clipSB_nodeRef"
       >
+        <div className="clipSB_refGrid" style={{ marginBottom: 10 }}>
+          {refs.map((item, idx) => (
+            <div className="clipSB_refThumb" key={`${item.url}-${idx}`}>
+              <img src={resolveAssetUrl(item.url)} alt={`${title} ${idx + 1}`} className="clipSB_refThumbImg" />
+              <button
+                className="clipSB_refThumbRemove"
+                title="Удалить изображение"
+                onClick={() => data?.onRemoveImage?.(id, idx)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          {canAddMore ? (
+            <button className="clipSB_refAddTile" onClick={openPicker} title="Добавить изображение">
+              +
+            </button>
+          ) : null}
+        </div>
+
         <div className="clipSB_fileRow" style={{ marginBottom: 10 }}>
-          <div className="clipSB_fileName" title={name || url || ""}>
-            {name || (url ? url : "нет изображения")}
+          <div className="clipSB_fileName" title={refs.map((x) => x.name || x.url).join(", ")}>
+            {refs.length ? `${refs.length}/${maxFiles} изображ.` : "нет изображения"}
           </div>
         </div>
 
-        <button className="clipSB_btn" onClick={() => data?.onPickImage?.(id)}>
-          Загрузить фото
+        <button className="clipSB_btn" onClick={openPicker} disabled={!canAddMore || !!data?.uploading}>
+          {data?.uploading ? "Загрузка…" : "Загрузить фото"}
         </button>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={onInputChange}
+        />
+
+        {!canAddMore ? (
+          <div className="clipSB_small" style={{ marginTop: 8 }}>
+            Достигнут лимит ({maxFiles})
+          </div>
+        ) : null}
 
         <div className="clipSB_hint" style={{ marginTop: 10 }}>
+          {kind === "ref_style"
+            ? "Глобальный стиль (1 фото)"
+            : "Загрузи до 5 фото, порядок учитывается"}
+        </div>
+
+        <div className="clipSB_hint" style={{ marginTop: 8 }}>
           подключай к BRAIN (персонаж/локация/стиль/предметы)
         </div>
       </NodeShell>
@@ -1082,10 +1138,19 @@ onParse: async (nodeId) => {
     const refStyleNode = pickSourceNode("ref_style");
     const refItemsNode = pickSourceNode("ref_items");
 
-    const refCharacter = refCharNode?.type === "refNode" && refCharNode?.data?.kind === "ref_character" ? (refCharNode.data?.url || "") : "";
-    const refLocation = refLocNode?.type === "refNode" && refLocNode?.data?.kind === "ref_location" ? (refLocNode.data?.url || "") : "";
-    const refStyle = refStyleNode?.type === "refNode" && refStyleNode?.data?.kind === "ref_style" ? (refStyleNode.data?.url || "") : "";
-    const refItems = refItemsNode?.type === "refNode" && refItemsNode?.data?.kind === "ref_items" ? (refItemsNode.data?.url || "") : "";
+    const getRefList = (refNode, expectedKind, max = 5) => {
+      if (refNode?.type !== "refNode" || refNode?.data?.kind !== expectedKind) return [];
+      const refsRaw = Array.isArray(refNode?.data?.refs) ? refNode.data.refs : [];
+      return refsRaw
+        .map((item) => ({ url: String(item?.url || "").trim() }))
+        .filter((item) => !!item.url)
+        .slice(0, max);
+    };
+
+    const characterRefs = getRefList(refCharNode, "ref_character", 5);
+    const locationRefs = getRefList(refLocNode, "ref_location", 5);
+    const propsRefs = getRefList(refItemsNode, "ref_items", 5);
+    const styleRef = getRefList(refStyleNode, "ref_style", 1)[0] || null;
 
     const scenarioKey = SCENARIO_OPTIONS.some((option) => option.value === brainNow.data?.scenarioKey)
       ? brainNow.data.scenarioKey
@@ -1107,10 +1172,16 @@ onParse: async (nodeId) => {
       styleKey,
       freezeStyle,
       wantLipSync,
-      refCharacter: refCharacter || null,
-      refLocation: refLocation || null,
-      refStyle: refStyle || null,
-      refItems: refItems || null,
+      refs: {
+        character: characterRefs,
+        location: locationRefs,
+        props: propsRefs,
+        style: styleRef,
+      },
+      characterRefs,
+      locationRefs,
+      propsRefs,
+      styleRef,
       audioType,
     };
 
@@ -1203,7 +1274,7 @@ onParse: async (nodeId) => {
                   rejectedReason: validation.rejectedReason || null,
                   repairRetryUsed: !!validation.repairRetryUsed,
                   audioHint: out?.plannerDebug?.audio?.hint || null,
-                  refs: { refCharacter, refLocation, refStyle },
+                  refs: { character: characterRefs, location: locationRefs, props: propsRefs, style: styleRef },
                   settings: { scenarioKey, shootKey, styleKey, freezeStyle },
                 },
               },
@@ -1234,22 +1305,32 @@ onParse: async (nodeId) => {
             ...base,
             data: {
               ...base.data,
-              onPickImage: (nodeId) => {
-                const input = document.createElement("input");
-                input.type = "file";
-                input.accept = "image/*";
-                input.onchange = async () => {
-                  const f = input.files && input.files[0];
-                  if (!f) return;
-                  try {
-                    const out = await uploadAsset(f);
-                    const url = out?.url || "";
-                    setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, url, name: out?.name || f.name } } : x)));
-                  } catch (err) {
-                    console.error(err);
-                  }
-                };
-                input.click();
+              onPickImage: async (nodeId, file) => {
+                if (!file) return;
+                setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, uploading: true } } : x)));
+                try {
+                  const out = await uploadAsset(file);
+                  const url = out?.url || "";
+                  setNodes((prev) => prev.map((x) => {
+                    if (x.id !== nodeId) return x;
+                    const maxFiles = x?.data?.kind === "ref_style" ? 1 : 5;
+                    const prevRefs = Array.isArray(x?.data?.refs) ? x.data.refs : (x?.data?.url ? [{ url: x.data.url, name: x?.data?.name || "" }] : []);
+                    const nextRefs = maxFiles === 1
+                      ? [{ url, name: out?.name || file.name }]
+                      : prevRefs.concat({ url, name: out?.name || file.name }).slice(0, maxFiles);
+                    return { ...x, data: { ...x.data, refs: nextRefs, uploading: false } };
+                  }));
+                } catch (err) {
+                  console.error(err);
+                  setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, uploading: false } } : x)));
+                }
+              },
+              onRemoveImage: (nodeId, idx) => {
+                setNodes((prev) => prev.map((x) => {
+                  if (x.id !== nodeId) return x;
+                  const prevRefs = Array.isArray(x?.data?.refs) ? x.data.refs : (x?.data?.url ? [{ url: x.data.url, name: x?.data?.name || "" }] : []);
+                  return { ...x, data: { ...x.data, refs: prevRefs.filter((_, i) => i !== idx) } };
+                }));
               },
             },
           };
@@ -1386,13 +1467,13 @@ const hydrate = useCallback(() => {
     } else if (type === "brain") {
       node = { id, type: "brainNode", position: { x: centerX + jitterX, y: centerY + jitterY }, data: { mode: "clip", scenarioKey: "clip", shootKey: "cinema", styleKey: "realism", freezeStyle: false, clipSec: 30 } };
     } else if (type === "ref_character") {
-      node = { id, type: "refNode", position: { x: centerX + jitterX, y: centerY + jitterY }, data: { title: "REF — ПЕРСОНАЖ", icon: "🧍", kind: "ref_character", url: "", name: "" } };
+      node = { id, type: "refNode", position: { x: centerX + jitterX, y: centerY + jitterY }, data: { title: "REF — ПЕРСОНАЖ", icon: "🧍", kind: "ref_character", refs: [], uploading: false } };
     } else if (type === "ref_location") {
-      node = { id, type: "refNode", position: { x: centerX + jitterX, y: centerY + jitterY }, data: { title: "REF — ЛОКАЦИЯ", icon: "📍", kind: "ref_location", url: "", name: "" } };
+      node = { id, type: "refNode", position: { x: centerX + jitterX, y: centerY + jitterY }, data: { title: "REF — ЛОКАЦИЯ", icon: "📍", kind: "ref_location", refs: [], uploading: false } };
     } else if (type === "ref_style") {
-      node = { id, type: "refNode", position: { x: centerX + jitterX, y: centerY + jitterY }, data: { title: "REF — СТИЛЬ", icon: "🎨", kind: "ref_style", url: "", name: "" } };
+      node = { id, type: "refNode", position: { x: centerX + jitterX, y: centerY + jitterY }, data: { title: "REF — СТИЛЬ", icon: "🎨", kind: "ref_style", refs: [], uploading: false } };
     } else if (type === "ref_items") {
-      node = { id, type: "refNode", position: { x: centerX + jitterX, y: centerY + jitterY }, data: { title: "REF — ПРЕДМЕТЫ", icon: "📦", kind: "ref_items", url: "", name: "" } };
+      node = { id, type: "refNode", position: { x: centerX + jitterX, y: centerY + jitterY }, data: { title: "REF — ПРЕДМЕТЫ", icon: "📦", kind: "ref_items", refs: [], uploading: false } };
     } else if (type === "storyboard") {
       node = { id, type: "storyboardNode", position: { x: centerX + jitterX, y: centerY + jitterY }, data: { scenes: [] } };
     } else if (type === "assembly") {
@@ -1441,6 +1522,8 @@ const hydrate = useCallback(() => {
       delete d.onFreezeStyle;
       delete d.onStyle;
       delete d.onShoot;
+      delete d.onPickImage;
+      delete d.onRemoveImage;
       return {
         id: n.id,
         type: n.type,
@@ -1469,6 +1552,8 @@ const hydrate = useCallback(() => {
         delete d.onFreezeStyle;
         delete d.onStyle;
         delete d.onShoot;
+      delete d.onPickImage;
+      delete d.onRemoveImage;
         return { id: n.id, type: n.type, position: n.position, data: d };
       });
       const serialEdges = edges.map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle || null, target: e.target, targetHandle: e.targetHandle || null }));

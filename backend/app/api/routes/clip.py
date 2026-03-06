@@ -221,6 +221,17 @@ def _decode_gemini_image(resp: dict) -> tuple[bytes, str] | None:
     return None
 
 
+class RefUrlItem(BaseModel):
+    url: str
+
+
+class BrainRefsIn(BaseModel):
+    character: list[RefUrlItem] = []
+    location: list[RefUrlItem] = []
+    props: list[RefUrlItem] = []
+    style: RefUrlItem | None = None
+
+
 class BrainIn(BaseModel):
     audioUrl: str | None = None
     text: str | None = None
@@ -231,7 +242,14 @@ class BrainIn(BaseModel):
     styleKey: str | None = None      # e.g. "realism"
     freezeStyle: bool | None = None
 
-    # refs (urls) - optional, just for prompt context
+    # refs (urls)
+    refs: BrainRefsIn | None = None
+    characterRefs: list[RefUrlItem] | None = None
+    locationRefs: list[RefUrlItem] | None = None
+    propsRefs: list[RefUrlItem] | None = None
+    styleRef: RefUrlItem | None = None
+
+    # legacy single-url refs (backward compatibility)
     refCharacter: str | None = None
     refLocation: str | None = None
     refStyle: str | None = None
@@ -705,6 +723,32 @@ def clip_plan(payload: BrainIn):
     text_type_hint = (payload.textType or "").strip().lower()
     want_lipsync = bool(payload.wantLipSync)
 
+    def _normalize_ref_list(items, max_items: int = 5):
+        out = []
+        if not items:
+            return out
+        for it in items:
+            url = str(getattr(it, "url", "") or "").strip()
+            if url:
+                out.append(url)
+        return out[:max_items]
+
+    refs_obj = payload.refs
+    character_refs = _normalize_ref_list((refs_obj.character if refs_obj else None) or payload.characterRefs, 5)
+    location_refs = _normalize_ref_list((refs_obj.location if refs_obj else None) or payload.locationRefs, 5)
+    props_refs = _normalize_ref_list((refs_obj.props if refs_obj else None) or payload.propsRefs, 5)
+    style_ref = str((refs_obj.style.url if refs_obj and refs_obj.style else "") or (payload.styleRef.url if payload.styleRef else "") or "").strip()
+
+    # legacy compatibility
+    if not character_refs and payload.refCharacter:
+        character_refs = [str(payload.refCharacter).strip()]
+    if not location_refs and payload.refLocation:
+        location_refs = [str(payload.refLocation).strip()]
+    if not props_refs and payload.refItems:
+        props_refs = [str(payload.refItems).strip()]
+    if not style_ref and payload.refStyle:
+        style_ref = str(payload.refStyle).strip()
+
     rules = f"""Ты — режиссёр монтажа музыкального клипа.
 Нужно построить SMART storyboard по треку и (если дан) тексту.
 Цель: умные таймкоды смены сцен по смыслу вокала/слов и по ритму/биту.
@@ -725,22 +769,26 @@ def clip_plan(payload: BrainIn):
 - Поля why, sceneText, lyricFragment, timingReason, imagePrompt, videoPrompt — всегда только русский.
 
 КОНТИНЬЮИТИ И LOCK-ПРАВИЛА (ОБЯЗАТЕЛЬНО):
-A) Если есть refCharacter: это IDENTITY LOCK.
-- Во всех сценах должен сохраняться один и тот же персонаж/персонажи.
-- Нельзя случайно менять внешность, возраст, типаж, образ или идентичность от сцены к сцене.
+A) Если есть styleRef: это STYLE LOCK (высший приоритет).
+- Это глобальный стиль всего ролика.
+- Все сцены, персонажи, локации и предметы должны быть стилизованы под styleRef.
+- Нельзя смешивать несвязанные стили при наличии styleRef.
 
-B) Если есть refLocation: это WORLD LOCK.
-- Сцены должны происходить в одной локации или в естественных вариациях той же среды.
-- Нельзя прыгать в случайные несвязанные места.
+B) Если есть characterRefs[]: это IDENTITY LOCK.
+- Все изображения characterRefs описывают одного персонажа.
+- Во всех сценах сохраняй лицо, образ и идентичность персонажа.
+- Нельзя менять персонажа между сценами.
 
-C) Если есть refStyle: это STYLE LOCK.
-- Общий визуальный язык, свет, цвет, mood и пластика должны быть едиными для всего клипа.
-- Нельзя превращать клип в набор несвязанных визуальных стилей.
+C) Если есть locationRefs[]: это WORLD LOCK.
+- Если locationRefs несколько, построй единый world profile и логичные зоны мира.
+- Нельзя распределять locationRefs по сценам 1-к-1 без общей логики.
+- Если locationRefs один — все сцены в рамках одного мира.
+- Если locationRefs нет — придумай мир, но сохрани единый стиль.
 
-D) Если есть refItems: это PROPS LOCK (props-aware storyboard).
-- Учитывай предметы как важные props и используй их органично.
-- Не нужно вставлять все предметы в каждый кадр.
-- Но если предметы заданы, они обязательно должны влиять на часть сцен и на визуальные решения.
+D) Если есть propsRefs[]: это PROPS LOCK.
+- Используй эти предметы как важные props в сценах.
+- Не теряй предметы случайно между сценами.
+- Не обязательно показывать все предметы в каждом кадре.
 
 E) Если текста нет:
 - Строй свободный нарратив внутри зафиксированного мира (free narrative inside locked world).
@@ -924,18 +972,28 @@ ATMOSPHERIC / STORY INSERTS:
 """
 
     ref_hints = []
-    if payload.refCharacter:
-        ref_hints.append("Есть реф персонажа (character reference).")
-    if payload.refLocation:
-        ref_hints.append("Есть реф локации (location reference).")
-    if payload.refStyle:
-        ref_hints.append("Есть реф стиля (style reference).")
-    if payload.refItems:
-        ref_hints.append("Есть реф предметов (items/props reference).")
+    if style_ref:
+        ref_hints.append("Есть styleRef (глобальный стиль, наивысший приоритет).")
+    if character_refs:
+        ref_hints.append(f"Есть characterRefs: {len(character_refs)} шт (identity lock).")
+    if location_refs:
+        ref_hints.append(f"Есть locationRefs: {len(location_refs)} шт (world lock).")
+    if props_refs:
+        ref_hints.append(f"Есть propsRefs: {len(props_refs)} шт (props lock).")
 
     extra = ""
     if ref_hints:
         extra += "\n" + " ".join(ref_hints)
+    extra += "\nПРИОРИТЕТ ИСТОЧНИКОВ (строгий): STYLE > CHARACTER > LOCATION > PROPS > TEXT > AUDIO."
+    if style_ref:
+        extra += f"\nstyleRef: {style_ref[:500]}"
+    if character_refs:
+        extra += "\ncharacterRefs:\n" + "\n".join(f"- {u[:500]}" for u in character_refs)
+    if location_refs:
+        extra += "\nlocationRefs:\n" + "\n".join(f"- {u[:500]}" for u in location_refs)
+    if props_refs:
+        extra += "\npropsRefs:\n" + "\n".join(f"- {u[:500]}" for u in props_refs)
+
     if text:
         extra += "\nТЕКСТ/СМЫСЛ (может быть история или слова песни):\n" + text[:4000]
     if audio_type_hint:

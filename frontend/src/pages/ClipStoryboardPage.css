@@ -137,6 +137,57 @@
   background: rgba(255, 255, 255, 0.10);
 }
 
+
+.clipSB_refGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.clipSB_refThumb {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.clipSB_refThumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.clipSB_refThumbRemove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+.clipSB_refAddTile {
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .clipSB_textWrap {
   position: relative;
   /* small inner gutter so textarea doesn't look flush to node edge */
