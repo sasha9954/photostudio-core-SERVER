@@ -586,12 +586,14 @@ def _normalize_scenes(duration: float, scenes: list[dict]) -> list[dict]:
 
 
 def _minimum_scene_count_for_repair(duration: float) -> int:
+    if duration >= 60:
+        return 10
     if duration >= 45:
-        return 6
+        return 8
     if duration >= 30:
+        return 7
+    if duration >= 15:
         return 5
-    if duration >= 20:
-        return 4
     return 3
 
 
@@ -623,7 +625,8 @@ def _validate_planner_scenes_quality(duration: float, scenario_key: str, scenes:
     warnings: list[str] = []
     rejected_reasons: list[str] = []
     scenario = (scenario_key or "").strip().lower()
-    is_weak_clip_plan = bool(scenario == "clip" and duration >= 20 and scene_count == 1)
+    min_clip_scenes_for_repair = _minimum_scene_count_for_repair(duration) if scenario == "clip" else 0
+    is_weak_clip_plan = bool(scenario == "clip" and scene_count < min_clip_scenes_for_repair)
     if scenario == "clip":
         if duration >= 12 and scene_count < 2:
             warnings.append("scene_count_below_min_for_12s")
@@ -631,6 +634,8 @@ def _validate_planner_scenes_quality(duration: float, scenario_key: str, scenes:
             warnings.append("scene_count_below_min_for_20s")
         if duration >= 30 and scene_count < 4:
             warnings.append("scene_count_below_min_for_30s")
+        if scene_count < min_clip_scenes_for_repair:
+            warnings.append(f"scene_count_below_repair_min_for_clip:{scene_count}<{min_clip_scenes_for_repair}")
         if is_weak_clip_plan:
             warnings.append("weak_clip_plan")
 
@@ -1041,6 +1046,9 @@ ATMOSPHERIC / STORY INSERTS:
 - Остальную часть припева показывай через rhythm montage / atmosphere / story inserts.
 - Clip mode должен быть музыкальным клипом, а не karaoke и не talking head.
 - Баланс для clip mode: немного lipSync, немного performance, много клипового монтажа, немного истории/атмосферы.
+- Даже короткий clip должен ощущаться как плотный музыкальный монтаж с достаточным количеством смен сцен.
+- Для ~30 секунд обычно целись в 7–8 сцен, если аудио не даёт очень сильного основания сделать меньше.
+- Избегай плана из 2–3 крупных сцен для 30-секундного музыкального клипа.
 
 РАБОТА С ФЛАГОМ wantLipSync:
 - Если wantLipSync=false:
