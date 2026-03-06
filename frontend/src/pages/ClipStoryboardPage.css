@@ -256,6 +256,23 @@
   background: #171b26;
 }
 
+
+.clipSB_selectScenario {
+  border-radius: 8px;
+  color: #ffffff;
+  background-color: #0f1624;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.clipSB_selectScenario:hover {
+  background-color: #1c2538;
+}
+
+.clipSB_selectScenario option {
+  color: #ffffff;
+  background: #0f1624;
+}
+
 .clipSB_selectLocked {
   pointer-events: none;
   cursor: default;

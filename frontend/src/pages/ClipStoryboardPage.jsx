@@ -41,8 +41,8 @@ function isBrainInput(handleId) {
 
 const SCENARIO_OPTIONS = [
   { value: "clip", label: "клип" },
-  { value: "movie", label: "кино" },
-  { value: "ad", label: "реклама" },
+  { value: "kino", label: "кино" },
+  { value: "reklama", label: "реклама" },
 ];
 
 // -------------------------
@@ -298,6 +298,10 @@ function TextNode({ id, data }) {
 }
 
 function BrainNode({ id, data }) {
+  const mode = data?.mode || "clip";
+  const scenarioKey = SCENARIO_OPTIONS.some((option) => option.value === data?.scenarioKey)
+    ? data.scenarioKey
+    : "clip";
   const shoot = data?.shootKey || "cinema";
   const style = data?.styleKey || "realism";
   const freezeStyle = !!data?.freezeStyle;
@@ -342,16 +346,22 @@ function BrainNode({ id, data }) {
         </div>
 
         <div style={{ display: "grid", gap: 10 }}>
-          <div>
-            <div className="clipSB_hint" style={{ marginBottom: 6 }}>
-              Сценарий
+          {mode !== "scenario" ? (
+            <div>
+              <div className="clipSB_hint" style={{ marginBottom: 6 }}>
+                Сценарий
+              </div>
+              <select
+                className="clipSB_select clipSB_selectScenario"
+                value={scenarioKey}
+                onChange={(e) => data?.onScenario?.(id, e.target.value)}
+              >
+                {SCENARIO_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
             </div>
-            <select className="clipSB_select clipSB_selectLocked" value="clip" disabled aria-disabled="true" tabIndex={-1}>
-              {SCENARIO_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </div>
+          ) : null}
 
           <div>
             <div className="clipSB_hint" style={{ marginBottom: 6 }}>
@@ -1005,6 +1015,10 @@ const scenarioSelectedAudioSliceUrl = useMemo(() => resolveAssetUrl(scenarioSele
               onMode: (nodeId, value) => {
                 setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, mode: value } } : x)));
               },
+              onScenario: (nodeId, value) => {
+                const nextValue = SCENARIO_OPTIONS.some((option) => option.value === value) ? value : "clip";
+                setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, scenarioKey: nextValue, mode: nextValue } } : x)));
+              },
               onShoot: (nodeId, value) => {
                 setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, shootKey: value } } : x)));
               },
@@ -1073,7 +1087,9 @@ onParse: async (nodeId) => {
     const refStyle = refStyleNode?.type === "refNode" && refStyleNode?.data?.kind === "ref_style" ? (refStyleNode.data?.url || "") : "";
     const refItems = refItemsNode?.type === "refNode" && refItemsNode?.data?.kind === "ref_items" ? (refItemsNode.data?.url || "") : "";
 
-    const scenarioKey = "clip";
+    const scenarioKey = SCENARIO_OPTIONS.some((option) => option.value === brainNow.data?.scenarioKey)
+      ? brainNow.data.scenarioKey
+      : "clip";
     const shootKey = brainNow.data?.shootKey || "cinema";
     const styleKey = brainNow.data?.styleKey || "realism";
     const freezeStyle = !!brainNow.data?.freezeStyle;
@@ -1318,8 +1334,12 @@ const hydrate = useCallback(() => {
           const data = { ...(n.data || {}) };
 
           if (n.type === "brainNode") {
-            data.scenarioKey = "clip";
-            data.mode = "clip";
+            const mode = ["clip", "kino", "reklama", "scenario"].includes(data.mode) ? data.mode : "clip";
+            const scenarioKey = SCENARIO_OPTIONS.some((option) => option.value === data.scenarioKey)
+              ? data.scenarioKey
+              : "clip";
+            data.mode = mode;
+            data.scenarioKey = scenarioKey;
           }
 
           if (n.type === "audioNode") {
