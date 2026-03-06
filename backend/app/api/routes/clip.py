@@ -985,8 +985,16 @@ def clip_plan(payload: BrainIn):
         if inline_part:
             character_images.append(inline_part)
 
+    location_images = []
+    for ref_url in location_refs:
+        inline_part = _load_reference_image_inline(ref_url)
+        if inline_part:
+            location_images.append(inline_part)
+
     print("CLIP DEBUG character_refs:", character_refs)
     print("CLIP DEBUG attached character images:", len(character_images))
+    print("CLIP DEBUG location_refs:", location_refs)
+    print("CLIP DEBUG attached location images:", len(location_images))
 
     api_key = (settings.GEMINI_API_KEY or "").strip()
     if not api_key:
@@ -999,8 +1007,9 @@ def clip_plan(payload: BrainIn):
             },
         )
 
-    if audio_bytes:
-        model_used = getattr(settings, "GEMINI_VISION_MODEL", None) or "gemini-2.5-flash"
+    has_visual_inputs = bool(audio_bytes or character_images)
+    if has_visual_inputs:
+        model_used = getattr(settings, "GEMINI_VISION_MODEL", None) or "gemini-1.5-flash"
     else:
         model_used = getattr(settings, "GEMINI_TEXT_MODEL", None) or "gemini-2.5-flash"
     model_used = model_used.strip()
@@ -1053,6 +1062,36 @@ If character reference images are provided:
 - Treat these images as the source of truth
 
 All scenes must describe the SAME character.
+
+REFERENCE UNDERSTANDING RULES
+
+Character reference images:
+- All images depict the SAME person
+- Use this character in every scene
+- Do not change gender
+- Do not change facial identity
+- Clothing from reference images should remain consistent unless the story explicitly changes it
+- Do not invent new hairstyles or body types
+
+Location reference images:
+- These images define the environment of the clip
+- Scenes should take place in this world
+- Architecture and atmosphere should match these references
+
+If reference images exist they override imagination.
+
+LANGUAGE RULES
+
+Scene descriptions must be written in Russian.
+
+Fields that must be Russian:
+- visualDescription
+- reason
+- camera
+- motion
+- lipSyncText
+
+Field visualPrompt should remain in English because it will be used for image generation.
 """
 
     user_input = {
@@ -1069,10 +1108,24 @@ All scenes must describe the SAME character.
     }
 
     parts = [{"text": system_rules}]
-    parts.extend(character_images)
+
+    if character_images:
+        parts.append({"text": "Character reference images. All images depict the SAME main character."})
+        parts.extend(character_images)
+
+    if location_images:
+        parts.append({"text": "Location reference images. These images define the world and environment of the clip."})
+        parts.extend(location_images)
+
     parts.append({"text": "Input payload:\n" + json.dumps(user_input, ensure_ascii=False)})
+
     if audio_bytes:
-        parts.append({"inlineData": {"mimeType": audio_mime, "data": base64.b64encode(audio_bytes).decode("ascii")}})
+        parts.append({
+            "inlineData": {
+                "mimeType": audio_mime,
+                "data": base64.b64encode(audio_bytes).decode("ascii")
+            }
+        })
 
     generation_config = {
         "temperature": 0.2,
