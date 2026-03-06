@@ -399,51 +399,142 @@ def get_audio_duration(url: str) -> float:
         return 30.0
 
 
+def _probe_audio_duration(path: str) -> float | None:
+    try:
+        cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        dur = float((result.stdout or "").strip())
+        if math.isfinite(dur) and dur > 0:
+            return float(dur)
+    except Exception:
+        return None
+    return None
+
+
 def _load_audio_for_planner(audio_url: str | None) -> tuple[float, bytes | None, str, dict]:
-    duration = 30.0
+    duration: float | None = None
     audio_mime = "audio/mpeg"
     debug = {
         "inputAudioUrl": audio_url or None,
         "resolvedPath": None,
         "audioBytesFound": False,
         "audioBytesSource": "none",
+        "audioMime": audio_mime,
+        "durationSec": None,
+        "durationSource": "unknown",
+        "audioLoadError": None,
         "hint": "",
     }
 
     if not audio_url:
+        debug["durationSource"] = "default_no_audio"
         debug["hint"] = "audio_url_missing"
-        return duration, None, audio_mime, debug
+        return 30.0, None, audio_mime, debug
 
     resolved_path = _resolve_audio_asset_path(audio_url)
     if resolved_path and os.path.isfile(resolved_path):
         debug["resolvedPath"] = resolved_path
-        duration = get_audio_duration(resolved_path)
+        ext = (os.path.splitext(resolved_path)[1] or "").lower()
+        if ext == ".wav":
+            audio_mime = "audio/wav"
+        elif ext == ".ogg":
+            audio_mime = "audio/ogg"
+        elif ext == ".m4a":
+            audio_mime = "audio/mp4"
+        duration = _probe_audio_duration(resolved_path)
+        if duration is not None:
+            debug["durationSec"] = duration
+            debug["durationSource"] = "local_ffprobe"
         try:
             with open(resolved_path, "rb") as f:
                 audio_bytes = f.read()
             if audio_bytes:
                 debug["audioBytesFound"] = True
                 debug["audioBytesSource"] = "local_asset"
+                debug["audioMime"] = audio_mime
                 debug["hint"] = "audio_loaded_from_local_asset"
-                return duration, audio_bytes, audio_mime, debug
-        except Exception:
-            pass
+                return float(duration or 30.0), audio_bytes, audio_mime, debug
+        except Exception as e:
+            debug["audioLoadError"] = f"local_asset_read_failed:{str(e)[:180]}"
 
     try:
-        duration = get_audio_duration(audio_url)
         r = requests.get(audio_url, timeout=30)
         r.raise_for_status()
+        header_mime = str(r.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if header_mime:
+            audio_mime = header_mime
         audio_bytes = r.content
         if audio_bytes:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".audio") as f:
+                f.write(audio_bytes)
+                tmp_path = f.name
+            try:
+                probed = _probe_audio_duration(tmp_path)
+                if probed is not None:
+                    duration = probed
+                    debug["durationSec"] = duration
+                    debug["durationSource"] = "http_ffprobe"
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
             debug["audioBytesFound"] = True
             debug["audioBytesSource"] = "http"
+            debug["audioMime"] = audio_mime
             debug["hint"] = "audio_loaded_over_http"
-            return duration, audio_bytes, audio_mime, debug
-    except Exception:
-        pass
+            return float(duration or 30.0), audio_bytes, audio_mime, debug
+    except Exception as e:
+        debug["audioLoadError"] = f"http_audio_load_failed:{str(e)[:180]}"
 
+    if duration is not None:
+        debug["durationSec"] = duration
+        if debug["durationSource"] == "unknown":
+            debug["durationSource"] = "ffprobe_without_audio_bytes"
+    else:
+        debug["durationSource"] = "default_fallback"
     debug["hint"] = "audio_not_found_or_unreachable_planner_built_without_audio_bytes"
-    return duration, None, audio_mime, debug
+    return float(duration or 30.0), None, audio_mime, debug
+
+
+def _validate_storyboard_timeline(duration: float, scenes: list[dict]) -> tuple[bool, str | None, list[str]]:
+    if not scenes:
+        return False, "scenes_empty", []
+    tol_edge = 0.75
+    tol_touch = 0.3
+    max_gap = 0.75
+    warnings: list[str] = []
+
+    sorted_scenes = sorted(scenes, key=lambda s: float(s.get("start") or 0.0))
+    if sorted_scenes != scenes:
+        return False, "timeline_unsorted", warnings
+
+    first_start = float(sorted_scenes[0].get("start") or 0.0)
+    last_end = float(sorted_scenes[-1].get("end") or 0.0)
+
+    if abs(first_start - 0.0) > tol_edge:
+        return False, "timeline_bad_start", warnings
+    if abs(last_end - float(duration)) > tol_edge:
+        return False, "timeline_bad_end", warnings
+
+    for idx in range(1, len(sorted_scenes)):
+        prev_end = float(sorted_scenes[idx - 1].get("end") or 0.0)
+        cur_start = float(sorted_scenes[idx].get("start") or 0.0)
+        delta = cur_start - prev_end
+        if delta < -tol_touch:
+            return False, f"timeline_overlap_at_{idx}", warnings
+        if delta > max_gap:
+            return False, f"timeline_gap_at_{idx}", warnings
+        if abs(delta) > tol_touch:
+            warnings.append(f"timeline_micro_gap_at_{idx}")
+    return True, None, warnings
 
 
 def _format_audio_analysis_summary(audio_analysis: dict) -> str:
@@ -914,6 +1005,25 @@ Response schema (all keys required):
         parsed = _parse_json_from_text(raw)
         return resp, raw, parsed
 
+    def _resolve_timeline_duration(plan: dict) -> float:
+        track = plan.get("track") or {}
+        try:
+            gemini_track_duration = float(track.get("durationSec"))
+            if not math.isfinite(gemini_track_duration) or gemini_track_duration <= 0:
+                gemini_track_duration = None
+        except Exception:
+            gemini_track_duration = None
+
+        duration_source = str(audio_debug.get("durationSource") or "")
+        has_real_audio_duration = duration_source in {"local_ffprobe", "http_ffprobe", "ffprobe_without_audio_bytes"}
+        if has_real_audio_duration and duration > 0:
+            return float(duration)
+        if gemini_track_duration is not None:
+            return float(gemini_track_duration)
+        if duration > 0:
+            return float(duration)
+        return 30.0
+
     def _validate_plan(plan: dict) -> tuple[bool, str | None]:
         if not isinstance(plan, dict):
             return False, "response_not_json_object"
@@ -939,6 +1049,10 @@ Response schema (all keys required):
                 return False, f"scene_{idx}_visual_empty"
         return True, None
 
+    retry_used = False
+    validation_warnings: list[str] = []
+    validation_rejected_reason: str | None = None
+
     resp, raw_text, parsed = _call_gemini(parts, model_used)
     err_text = _combined_error_text(resp if isinstance(resp, dict) else {})
     if _is_model_unsupported_error(err_text):
@@ -946,10 +1060,28 @@ Response schema (all keys required):
         resp, raw_text, parsed = _call_gemini(parts, model_used)
 
     is_valid, reason = _validate_plan(parsed)
+    if is_valid:
+        timeline_duration = _resolve_timeline_duration(parsed)
+        timeline_ok, timeline_reason, timeline_warnings = _validate_storyboard_timeline(timeline_duration, parsed.get("scenes") or [])
+        validation_warnings.extend(timeline_warnings)
+        if not timeline_ok:
+            is_valid = False
+            reason = timeline_reason
+
     if not is_valid:
+        retry_used = True
         retry_parts = parts + [{"text": f"Previous output invalid ({reason}). Return ONLY one valid JSON object matching required schema."}]
         resp, raw_text, parsed = _call_gemini(retry_parts, model_used)
         is_valid, reason = _validate_plan(parsed)
+        if is_valid:
+            timeline_duration = _resolve_timeline_duration(parsed)
+            timeline_ok, timeline_reason, timeline_warnings = _validate_storyboard_timeline(timeline_duration, parsed.get("scenes") or [])
+            validation_warnings.extend(timeline_warnings)
+            if not timeline_ok:
+                is_valid = False
+                reason = timeline_reason
+
+    validation_rejected_reason = reason if not is_valid else None
 
     if not is_valid:
         err = _combined_error_text(resp if isinstance(resp, dict) else {}) or raw_text or reason or "invalid_gemini_json"
@@ -961,12 +1093,23 @@ Response schema (all keys required):
                 "detail": str(err)[:1200],
                 "modelUsed": model_used,
                 "hint": reason,
+                "plannerDebug": {
+                    "audio": audio_debug,
+                    "validation": {
+                        "scenario": mode,
+                        "sceneCount": len((parsed or {}).get("scenes") or []),
+                        "rejectedReason": validation_rejected_reason,
+                        "repairRetryUsed": retry_used,
+                        "warnings": validation_warnings,
+                    },
+                },
             },
         )
 
     plan = parsed
-    track = plan.get("track") or {}
-    audio_duration = float(track.get("durationSec") or duration or 30.0)
+    track = dict(plan.get("track") or {})
+    audio_duration = _resolve_timeline_duration(plan)
+    track["durationSec"] = audio_duration
     scenes = plan.get("scenes") or []
 
     normalized_scenes = []
@@ -976,6 +1119,8 @@ Response schema (all keys required):
         visual_prompt = str(s.get("visualPrompt") or "").strip()
         visual_desc = str(s.get("visualDescription") or "").strip()
         lip_sync_text = str(s.get("lipSyncText") or "").strip()
+        lyric_fragment = str(s.get("lyricFragment") or lip_sync_text).strip()
+        video_prompt = str(s.get("videoPrompt") or visual_prompt or visual_desc).strip()
         scene_type = str(s.get("sceneType") or "visual_rhythm").strip() or "visual_rhythm"
         normalized_scenes.append({
             **s,
@@ -985,10 +1130,12 @@ Response schema (all keys required):
             "prompt": visual_prompt or visual_desc,
             "sceneText": visual_desc,
             "imagePrompt": visual_prompt,
+            "videoPrompt": video_prompt,
             "why": str(s.get("reason") or "").strip(),
             "sceneType": scene_type,
             "isLipSync": bool(lip_sync_text),
             "lipSyncText": lip_sync_text,
+            "lyricFragment": lyric_fragment,
         })
 
     return {
@@ -1008,9 +1155,9 @@ Response schema (all keys required):
             "validation": {
                 "scenario": mode,
                 "sceneCount": len(normalized_scenes),
-                "rejectedReason": None,
-                "repairRetryUsed": False,
-                "warnings": [],
+                "rejectedReason": validation_rejected_reason,
+                "repairRetryUsed": retry_used,
+                "warnings": validation_warnings,
             },
         },
     }
