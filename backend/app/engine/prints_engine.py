@@ -15,6 +15,7 @@ from typing import Tuple, List, Optional
 from PIL import Image, ImageFilter, ImageOps, ImageChops, ImageStat, ImageEnhance
 
 from app.core.config import settings
+from app.core.static_paths import ASSETS_DIR, ensure_static_dirs, asset_url
 import uuid
 
 def _sha256_bytes(b: bytes) -> str:
@@ -23,9 +24,6 @@ def _sha256_bytes(b: bytes) -> str:
     except Exception:
         return 'NA'
 
-
-ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "static", "assets")
-ASSETS_DIR = os.path.abspath(ASSETS_DIR)
 
 # --- Prints: external print type profiles (YAML) ---
 _PRINT_PROFILES_CACHE = None
@@ -217,7 +215,7 @@ The edge reference image marks HARD garment boundaries and physical surface brea
 # --- /PRINT PROMPT TEMPLATES ---
 
 def _ensure_dir():
-    os.makedirs(ASSETS_DIR, exist_ok=True)
+    ensure_static_dirs()
 
 
 def _is_local_static_url(url: str) -> Optional[str]:
@@ -1159,8 +1157,7 @@ def _save_png(img: Image.Image) -> str:
     if not os.path.exists(path):
         with open(path, "wb") as f:
             f.write(raw)
-    base = settings.PUBLIC_BASE_URL.rstrip("/")
-    return f"{base}/static/assets/{fn}"
+    return asset_url(fn)
 
 
 def _make_thumb(img: Image.Image, max_side: int = 360) -> Image.Image:

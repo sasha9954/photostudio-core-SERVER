@@ -12,17 +12,13 @@ import urllib.request
 import urllib.parse
 import tempfile
 import subprocess
-from datetime import datetime
-from app.core.config import settings
+from app.core.static_paths import ASSETS_DIR, ensure_static_dirs, asset_url, resolve_asset_filename_with_image_fallback
 
 router = APIRouter()
 
-ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "static", "assets")
-ASSETS_DIR = os.path.abspath(ASSETS_DIR)
-
 def _ensure_assets_dir():
     try:
-        os.makedirs(ASSETS_DIR, exist_ok=True)
+        ensure_static_dirs()
     except Exception:
         pass
 
@@ -134,7 +130,8 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         except Exception:
             raise HTTPException(status_code=500, detail="write_failed")
 
-    base = settings.PUBLIC_BASE_URL.rstrip("/")
+    print("saved asset =", str(out_path), os.path.exists(out_path))
+
     
     duration_sec = None
     if ct.startswith("audio/"):
@@ -143,7 +140,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         except Exception:
             duration_sec = None
 
-    url = f"{base}/static/assets/{fn}"
+    url = asset_url(fn)
     return {
         "url": url,
         "mime": ct,
@@ -176,7 +173,7 @@ class ZipIn(BaseModel):
     urls: list[str]
 
 def _ensure_dir():
-    os.makedirs(ASSETS_DIR, exist_ok=True)
+    ensure_static_dirs()
 
 def _guess_ext(mime: str) -> str:
     m = (mime or "").lower()
@@ -217,8 +214,7 @@ def from_data_url(req: Request, body: FromDataUrlIn):
             f.write(raw)
 
     # return absolute URL (frontend needs correct host)
-    base = settings.PUBLIC_BASE_URL.rstrip("/")
-    url = f"{base}/static/assets/{fn}"
+    url = asset_url(fn)
     return {"url": url, "mime": mime, "bytes": len(raw)}
 
 
@@ -261,8 +257,7 @@ def from_url(payload: FromUrlIn, request: Request):
     except Exception:
         raise HTTPException(status_code=500, detail="write_failed")
 
-    base = settings.PUBLIC_BASE_URL.rstrip("/")
-    return {"url": f"{base}/static/assets/{fn}"}
+    return {"url": asset_url(fn)}
 
 
 @router.post("/zip")
@@ -288,9 +283,10 @@ def zip_assets(payload: ZipIn, request: Request):
         fn = os.path.basename(fn)
         if not re.match(r"^[0-9a-f]{8,32}\.(png|jpg|jpeg|webp)$", fn, flags=re.I):
             continue
-        fp = os.path.join(ASSETS_DIR, fn)
+        resolved_fn = resolve_asset_filename_with_image_fallback(fn) or fn
+        fp = os.path.join(ASSETS_DIR, resolved_fn)
         if os.path.exists(fp):
-            files.append((fn, fp))
+            files.append((resolved_fn, fp))
 
     if not files:
         raise HTTPException(status_code=400, detail="no_local_assets")

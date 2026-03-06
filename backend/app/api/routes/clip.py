@@ -15,19 +15,10 @@ from uuid import uuid4
 from PIL import Image, ImageDraw
 
 from app.core.config import settings
+from app.core.static_paths import ASSETS_DIR, ensure_static_dirs, asset_url
 from app.engine.gemini_rest import post_generate_content
 
 router = APIRouter()
-
-ASSETS_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "..", "static", "assets")
-)
-ASSETS_DIR_APP = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "..", "app", "static", "assets")
-)
-ASSETS_DIR_ALT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "static", "assets")
-)
 
 
 class ClipImageIn(BaseModel):
@@ -46,12 +37,11 @@ class AudioSliceIn(BaseModel):
 
 
 def _ensure_assets_dir() -> None:
-    os.makedirs(ASSETS_DIR, exist_ok=True)
+    ensure_static_dirs()
 
 
 def _asset_url(filename: str) -> str:
-    base = (settings.PUBLIC_BASE_URL or "http://127.0.0.1:8000").rstrip("/")
-    return f"{base}/static/assets/{filename}"
+    return asset_url(filename)
 
 
 def _save_bytes_as_asset(raw: bytes, ext: str = "png") -> str:
@@ -60,7 +50,7 @@ def _save_bytes_as_asset(raw: bytes, ext: str = "png") -> str:
     if ext not in {"png", "jpg", "jpeg", "webp"}:
         ext = "png"
     filename = f"clip_scene_{uuid4().hex}.{ext}"
-    fpath = os.path.join(ASSETS_DIR, filename)
+    fpath = os.path.join(str(ASSETS_DIR), filename)
     with open(fpath, "wb") as f:
         f.write(raw)
     return _asset_url(filename)
@@ -86,7 +76,7 @@ def _resolve_audio_asset_path(audio_url: str) -> str | None:
     if not base:
         return None
 
-    dirs = [ASSETS_DIR_APP, ASSETS_DIR, ASSETS_DIR_ALT]
+    dirs = [ASSETS_DIR]
     names = [filename, base, f"{base}.mp3", f"{base}.wav", f"{base}.ogg", f"{base}.m4a"]
     seen = set()
     candidates: list[str] = []
@@ -169,7 +159,7 @@ def _debug_audio_slice(audio_url: str, resolved_path: str | None) -> None:
         base = ""
 
     if filename and base:
-        dirs = [ASSETS_DIR_APP, ASSETS_DIR, ASSETS_DIR_ALT]
+        dirs = [ASSETS_DIR]
         names = [filename, base, f"{base}.mp3", f"{base}.wav", f"{base}.ogg", f"{base}.m4a"]
         seen = set()
         for d in dirs:
@@ -183,9 +173,7 @@ def _debug_audio_slice(audio_url: str, resolved_path: str | None) -> None:
     print("AUDIO SLICE DEBUG")
     print("audioUrl:", audio_url)
     print("resolved path:", resolved_path)
-    print("ASSETS_DIR_APP:", ASSETS_DIR_APP)
-    print("ASSETS_DIR:", ASSETS_DIR)
-    print("ASSETS_DIR_ALT:", ASSETS_DIR_ALT)
+    print("ASSETS_DIR:", str(ASSETS_DIR))
     print("candidate paths (first 10):")
     for p in candidate_debug[:10]:
         print(" -", p, "exists=", os.path.isfile(p))
@@ -200,7 +188,7 @@ def _mock_scene_image(scene_id: str, width: int, height: int) -> str:
     text = f"MOCK\n{scene_id or 'scene'}"
     draw.multiline_text((32, 32), text, fill=(230, 235, 245), spacing=8)
     filename = f"clip_scene_mock_{uuid4().hex}.png"
-    img.save(os.path.join(ASSETS_DIR, filename), format="PNG")
+    img.save(os.path.join(str(ASSETS_DIR), filename), format="PNG")
     return _asset_url(filename)
 
 
@@ -1332,7 +1320,7 @@ def clip_audio_slice(payload: AudioSliceIn):
     t0_ms = int(round(t0 * 1000))
     t1_ms = int(round(t1 * 1000))
     filename = f"clip_audio_{safe_scene}_{t0_ms}_{t1_ms}_{uuid4().hex[:8]}.mp3"
-    output_path = os.path.join(ASSETS_DIR, filename)
+    output_path = os.path.join(str(ASSETS_DIR), filename)
 
     ok, err = _ffmpeg_audio_slice(path, output_path, t0, t1)
     if not ok:

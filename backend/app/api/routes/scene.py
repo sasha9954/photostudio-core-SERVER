@@ -13,6 +13,7 @@ import hashlib
 from typing import List, Optional, Any
 
 from app.core.config import settings
+from app.core.static_paths import ASSETS_DIR, ensure_static_dirs, asset_url
 from app.engine.scene_engine import create_asset
 from app.engine.media_io import fetch_url_to_bytes, bytes_to_b64, sniff_mime_from_bytes
 
@@ -183,13 +184,10 @@ def _scene_job_get(uid: str, job_id: str) -> dict | None:
         out.pop("result_json", None)
         return out
 
-ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "static", "assets")
-ASSETS_DIR = os.path.abspath(ASSETS_DIR)
-
 _DATAURL_RE = re.compile(r"^data:(?P<mime>[^;]+);base64,(?P<data>.+)$", re.IGNORECASE | re.DOTALL)
 
 def _ensure_assets_dir():
-    os.makedirs(ASSETS_DIR, exist_ok=True)
+    ensure_static_dirs()
 
 def _guess_ext(mime: str) -> str:
     m = (mime or "").lower()
@@ -228,8 +226,7 @@ def _save_dataurl_to_asset_url(data_url: str) -> str:
     if not os.path.exists(path):
         with open(path, "wb") as f:
             f.write(raw)
-    base = settings.PUBLIC_BASE_URL.rstrip("/")
-    return f"{base}/static/assets/{fn}"
+    return asset_url(fn)
 
 class SceneGenerateIn(BaseModel):
     kind: str  # "model" | "location"

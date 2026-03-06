@@ -6,14 +6,12 @@ import os
 from typing import Any, Dict, List, Tuple
 
 from app.core.config import settings
+from app.core.static_paths import ASSETS_DIR, ensure_static_dirs, asset_url
 
-
-ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "static", "assets")
-ASSETS_DIR = os.path.abspath(ASSETS_DIR)
 
 
 def _ensure_assets_dir() -> None:
-    os.makedirs(ASSETS_DIR, exist_ok=True)
+    ensure_static_dirs()
 
 
 def _guess_ext(mime: str) -> str:
@@ -38,8 +36,7 @@ def save_b64_image_as_asset(mime: str, b64: str) -> str:
     if not os.path.exists(path):
         with open(path, "wb") as f:
             f.write(raw)
-    base = settings.PUBLIC_BASE_URL.rstrip("/")
-    return f"{base}/static/assets/{fn}"
+    return asset_url(fn)
 
 
 def build_legacy_scene(model_url: str, location_url: str) -> Dict[str, Any]:

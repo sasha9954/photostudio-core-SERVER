@@ -16,6 +16,7 @@ import threading
 import uuid
 
 from app.core.config import settings
+from app.core.static_paths import ASSETS_DIR, ensure_static_dirs, asset_url
 from app.services.auth_service import add_ledger
 from app.engine.engine_init import load_engine_config
 from app.engine.lookbook_engine import photoshoot as engine_photoshoot
@@ -256,10 +257,8 @@ def _default_session(mode: str) -> dict:
 
 
 
-ASSETS_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "static", "assets"))
-
 def _ensure_assets_dir():
-    os.makedirs(ASSETS_DIR, exist_ok=True)
+    ensure_static_dirs()
 
 def _guess_ext(mime: str) -> str:
     m = (mime or "").lower()
@@ -285,8 +284,7 @@ def _save_dataurl_to_asset_url(data_url: str) -> str:
     if not os.path.exists(path):
         with open(path, "wb") as f:
             f.write(raw)
-    base = settings.PUBLIC_BASE_URL.rstrip("/")
-    return f"{base}/static/assets/{fn}"
+    return asset_url(fn)
 
 def _abs_asset_url(req: Request, url: str | None) -> str | None:
     if not url:
@@ -406,8 +404,7 @@ def _asset_file_path_from_url(url: str) -> str | None:
     fname = os.path.basename(fname)
     if not fname:
         return None
-    assets_dir = os.path.join(os.path.dirname(__file__), "..", "..", "static", "assets")
-    assets_dir = os.path.normpath(assets_dir)
+    assets_dir = os.path.normpath(str(ASSETS_DIR))
     full = os.path.normpath(os.path.join(assets_dir, fname))
     if not full.startswith(assets_dir):
         return None

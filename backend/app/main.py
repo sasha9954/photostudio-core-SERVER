@@ -9,17 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.api.router import api_router
 from app.db.sqlite import init_db
+from app.core.static_paths import STATIC_DIR, ASSETS_DIR, ensure_static_dirs
 
 app = FastAPI(title="PhotoStudio Core API", version="0.2.0")
-
-APP_DIR = os.path.dirname(__file__)
-# Prefer backend/static (project-level) if it exists, иначе fallback to backend/app/static.
-STATIC_DIR_ROOT = os.path.abspath(os.path.join(APP_DIR, "..", "static"))
-STATIC_DIR_APP = os.path.join(APP_DIR, "static")
-STATIC_DIR = STATIC_DIR_ROOT if os.path.isdir(STATIC_DIR_ROOT) else STATIC_DIR_APP
-os.makedirs(STATIC_DIR, exist_ok=True)
-os.makedirs(os.path.join(STATIC_DIR, "assets"), exist_ok=True)
-os.makedirs(os.path.join(STATIC_DIR, "videos"), exist_ok=True)
 
 
 @app.exception_handler(ValueError)
@@ -98,6 +90,9 @@ class CORSStaticFiles(StaticFiles):
 
 @app.on_event("startup")
 def _startup():
+    ensure_static_dirs()
+    print("STATIC_DIR =", str(STATIC_DIR))
+    print("ASSETS_DIR =", str(ASSETS_DIR))
     init_db()
 
 
@@ -160,4 +155,4 @@ def engine_status():
         "time": datetime.now(timezone.utc).isoformat(),
     }
 app.include_router(api_router, prefix="/api")
-app.mount("/static", CORSStaticFiles(directory=STATIC_DIR), name="static")
+app.mount("/static", CORSStaticFiles(directory=str(STATIC_DIR)), name="static")
