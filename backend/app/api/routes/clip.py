@@ -357,11 +357,16 @@ def _pick_fallback_model(model_used: str | None) -> str:
 def get_audio_duration(url: str) -> float:
     """Получаем длительность аудио через ffprobe"""
     try:
-        r = requests.get(url, timeout=20)
-        r.raise_for_status()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
-            f.write(r.content)
-            path = f.name
+        if os.path.isfile(url):
+            path = url
+            temp_path = None
+        else:
+            r = requests.get(url, timeout=20)
+            r.raise_for_status()
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
+                f.write(r.content)
+                path = f.name
+                temp_path = path
 
         cmd = [
             "ffprobe",
@@ -376,10 +381,61 @@ def get_audio_duration(url: str) -> float:
         result = subprocess.run(cmd, capture_output=True, text=True)
         dur = float((result.stdout or "").strip())
         if math.isfinite(dur) and dur > 0:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
             return float(dur)
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
         return 30.0
     except Exception:
         return 30.0
+
+
+def _load_audio_for_planner(audio_url: str | None) -> tuple[float, bytes | None, str, dict]:
+    duration = 30.0
+    audio_mime = "audio/mpeg"
+    debug = {
+        "inputAudioUrl": audio_url or None,
+        "resolvedPath": None,
+        "audioBytesFound": False,
+        "audioBytesSource": "none",
+        "hint": "",
+    }
+
+    if not audio_url:
+        debug["hint"] = "audio_url_missing"
+        return duration, None, audio_mime, debug
+
+    resolved_path = _resolve_audio_asset_path(audio_url)
+    if resolved_path and os.path.isfile(resolved_path):
+        debug["resolvedPath"] = resolved_path
+        duration = get_audio_duration(resolved_path)
+        try:
+            with open(resolved_path, "rb") as f:
+                audio_bytes = f.read()
+            if audio_bytes:
+                debug["audioBytesFound"] = True
+                debug["audioBytesSource"] = "local_asset"
+                debug["hint"] = "audio_loaded_from_local_asset"
+                return duration, audio_bytes, audio_mime, debug
+        except Exception:
+            pass
+
+    try:
+        duration = get_audio_duration(audio_url)
+        r = requests.get(audio_url, timeout=30)
+        r.raise_for_status()
+        audio_bytes = r.content
+        if audio_bytes:
+            debug["audioBytesFound"] = True
+            debug["audioBytesSource"] = "http"
+            debug["hint"] = "audio_loaded_over_http"
+            return duration, audio_bytes, audio_mime, debug
+    except Exception:
+        pass
+
+    debug["hint"] = "audio_not_found_or_unreachable_planner_built_without_audio_bytes"
+    return duration, None, audio_mime, debug
 
 
 def _fallback_plan(duration: float, text: str | None):
@@ -405,16 +461,16 @@ def _fallback_plan(duration: float, text: str | None):
             "id": f"s{i+1:02d}",
             "start": float(t),
             "end": float(t1),
-            "why": "fallback slicing",
+            "why": "резервная нарезка по равным сегментам",
             "sceneText": ch,
-            "imagePrompt": f"Cinematic scene: {ch}",
-            "videoPrompt": "Cinematic camera movement, dramatic lighting, film grain",
+            "imagePrompt": f"Кинематографичная сцена: {ch}",
+            "videoPrompt": "Кинематографичное движение камеры, драматичный свет, зерно плёнки",
             "audioType": "mixed",
             "sceneType": "visual_rhythm",
             "hasVocals": False,
             "isLipSync": False,
             "lyricFragment": "",
-            "timingReason": "fallback slicing by equal-duration segments",
+            "timingReason": "резервная нарезка на равные по длительности отрезки",
             "beatAnchor": "bar_start",
             "performanceType": "cinematic_visual",
             "shotType": "wide",
@@ -520,18 +576,7 @@ def clip_plan(payload: BrainIn):
     """SMART ScenePlan: returns timecoded scenes across whole audio."""
     text = (payload.text or "").strip()
 
-    duration = 30.0
-    audio_bytes = None
-    audio_mime = "audio/mpeg"
-
-    if payload.audioUrl:
-        duration = get_audio_duration(payload.audioUrl)
-        try:
-            r = requests.get(payload.audioUrl, timeout=30)
-            r.raise_for_status()
-            audio_bytes = r.content
-        except Exception:
-            audio_bytes = None
+    duration, audio_bytes, audio_mime, audio_debug = _load_audio_for_planner(payload.audioUrl)
 
     # If no key -> fallback
     if not (settings.GEMINI_API_KEY or "").strip():
@@ -575,6 +620,9 @@ def clip_plan(payload: BrainIn):
 - Если есть вокал/слова — границы сцен ставь на смысловых фразах/переходах (куплет/припев/бридж).
 - Стиль: {style_key}. Съёмка: {shoot_key}. FreezeStyle: {freeze}.
 - Если текста нет — всё равно делай осмысленный клиповый план по музыке.
+- Все текстовые поля в JSON возвращай ТОЛЬКО на русском языке.
+- Даже если песня/текст не на русском, служебные поля planner всё равно должны быть на русском.
+- Поля why, sceneText, lyricFragment, timingReason, imagePrompt, videoPrompt — всегда только русский.
 
 ПРАВИЛА ПО ВОКАЛУ И LIPSYNC:
 A) ПРИОРИТЕТ АНАЛИЗА ВОКАЛА:
@@ -688,7 +736,8 @@ JSON СХЕМА:
 Planner должен смешивать их.
 
 ЛОГИКА РАСПРЕДЕЛЕНИЯ СЦЕН ДЛЯ CLIP:
-- 20–35% сцен: lipSync / performance
+- LipSync дорогой: используй экономно и только как короткий performance-акцент.
+- 10–25% сцен: lipSync / performance
 - 40–60% сцен: rhythm montage
 - 15–30% сцен: atmospheric / narrative inserts
 - LipSync сцены НЕ должны идти подряд.
@@ -698,6 +747,11 @@ LipSync сцены добавляй только если одновременн
 - слышен явный вокал;
 - есть цельная вокальная фраза;
 - это эмоционально сильный момент.
+- Не превращай весь припев в одну длинную lipSync-сцену.
+- Выбирай только лучший фрагмент припева / hook.
+- Предпочтительная длительность lipSync: 3–5 сек.
+- Допустимо 2–3 сек для очень сильной короткой фразы.
+- Максимум обычно 5–6 сек.
 Приоритетные точки:
 - начало припева;
 - главная строка;
@@ -722,9 +776,12 @@ ATMOSPHERIC / STORY INSERTS:
 - Используй их, чтобы разбавить performance, показать эмоцию, добавить атмосферу и действие персонажа.
 
 ОГРАНИЧЕНИЯ РЕЖИМА CLIP:
-- Для клипа длительностью до 60 секунд: не более 3 lipSync сцен.
-- Не делай слишком короткие lipSync segments.
-- Не допускай 2–3 lipSync сцены подряд.
+- Для клипа до 30 секунд: максимум 1 lipSync сцена.
+- Для клипа 30–60 секунд: максимум 2 lipSync сцены, редко 3.
+- LipSync сцены не должны идти подряд.
+- Остальную часть припева показывай через rhythm montage / atmosphere / story inserts.
+- Clip mode должен быть музыкальным клипом, а не karaoke и не talking head.
+- Баланс для clip mode: немного lipSync, немного performance, много клипового монтажа, немного истории/атмосферы.
 """
 
     ref_hints = []
@@ -794,9 +851,10 @@ ATMOSPHERIC / STORY INSERTS:
                     "engine": "gemini_partial",
                     "audioDuration": duration,
                     "scenes": scenes,
+                    "plannerDebug": {"audio": audio_debug},
                     "modelUsed": model_used,
                     "fallbackUsed": fallback_used,
-                    "hint": "http_error_but_parsed_json",
+                    "hint": "http_error_but_parsed_json" if audio_bytes else "plan_built_without_audio_bytes",
                 }
         scenes = _fallback_plan(duration, text)
         return {
@@ -804,9 +862,10 @@ ATMOSPHERIC / STORY INSERTS:
             "engine": "fallback",
             "audioDuration": duration,
             "scenes": scenes,
+            "plannerDebug": {"audio": audio_debug},
             "modelUsed": model_used,
             "fallbackUsed": fallback_used,
-            "hint": error_hint or raw_text[:1500],
+            "hint": "plan_built_without_audio_bytes" if not audio_bytes else (error_hint or raw_text[:1500]),
             "error": {
                 "code": "MODEL_UNSUPPORTED" if first_was_unsupported else "GENERATION_FAILED",
                 "hint": error_hint or raw_text[:1500],
@@ -850,9 +909,10 @@ ATMOSPHERIC / STORY INSERTS:
             "engine": "fallback",
             "audioDuration": duration,
             "scenes": scenes,
+            "plannerDebug": {"audio": audio_debug},
             "modelUsed": model_used,
             "fallbackUsed": fallback_used,
-            "hint": hint,
+            "hint": "plan_built_without_audio_bytes" if not audio_bytes else hint,
             "error": {
                 "code": "MODEL_UNSUPPORTED" if first_was_unsupported else "GENERATION_FAILED",
                 "hint": hint,
@@ -873,9 +933,10 @@ ATMOSPHERIC / STORY INSERTS:
             "engine": "fallback",
             "audioDuration": duration,
             "scenes": scenes,
+            "plannerDebug": {"audio": audio_debug},
             "modelUsed": model_used,
             "fallbackUsed": fallback_used,
-            "hint": "empty_scenes",
+            "hint": "plan_built_without_audio_bytes" if not audio_bytes else "empty_scenes",
             "error": {
                 "code": "GENERATION_FAILED",
                 "hint": "empty_scenes",
@@ -889,9 +950,10 @@ ATMOSPHERIC / STORY INSERTS:
         "engine": "gemini",
         "audioDuration": duration,
         "scenes": scenes,
+        "plannerDebug": {"audio": audio_debug},
         "modelUsed": model_used,
         "fallbackUsed": fallback_used,
-        "hint": None,
+        "hint": None if audio_bytes else "plan_built_without_audio_bytes",
     }
 
 
