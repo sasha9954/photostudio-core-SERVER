@@ -741,10 +741,11 @@ const scenarioSelectedT1 = Number(scenarioSelected?.t1 ?? scenarioSelected?.end 
 const scenarioSelectedExpectedSliceSec = Number(
   scenarioSelected?.audioSliceExpectedDurationSec ?? Math.max(0, scenarioSelectedT1 - scenarioSelectedT0)
 );
-const globalAudioUrl = useMemo(() => {
+const globalAudioUrlRaw = useMemo(() => {
   const audioNodeWithUrl = nodes.find((n) => n.type === "audioNode" && n?.data?.audioUrl);
-  return audioNodeWithUrl?.data?.audioUrl ? resolveAssetUrl(audioNodeWithUrl.data.audioUrl) : "";
+  return audioNodeWithUrl?.data?.audioUrl ? String(audioNodeWithUrl.data.audioUrl) : "";
 }, [nodes]);
+const globalAudioUrlResolved = useMemo(() => resolveAssetUrl(globalAudioUrlRaw), [globalAudioUrlRaw]);
 const scenarioSelectedAudioSliceUrl = useMemo(() => resolveAssetUrl(scenarioSelected?.audioSliceUrl), [scenarioSelected?.audioSliceUrl]);
   const [scenarioImageLoading, setScenarioImageLoading] = useState(false);
   const [scenarioImageError, setScenarioImageError] = useState("");
@@ -820,7 +821,7 @@ const scenarioSelectedAudioSliceUrl = useMemo(() => resolveAssetUrl(scenarioSele
 
   const handleScenarioVideoTakeAudio = useCallback(async () => {
     if (!scenarioSelected) return;
-    if (!globalAudioUrl) {
+    if (!globalAudioUrlRaw) {
       setScenarioVideoError("Не найден общий audioUrl в Audio node");
       return;
     }
@@ -833,7 +834,7 @@ const scenarioSelectedAudioSliceUrl = useMemo(() => resolveAssetUrl(scenarioSele
     try {
       const out = await fetchJson("/api/clip/audio-slice", {
         method: "POST",
-        body: { sceneId, t0, t1, audioUrl: globalAudioUrl },
+        body: { sceneId, t0, t1, audioUrl: globalAudioUrlRaw },
       });
       if (!out?.ok || !out?.audioSliceUrl) throw new Error(out?.hint || out?.code || "audio_slice_failed");
       const outT0 = Number(out?.t0 ?? t0);
@@ -854,7 +855,7 @@ const scenarioSelectedAudioSliceUrl = useMemo(() => resolveAssetUrl(scenarioSele
     } finally {
       setScenarioVideoLoading(false);
     }
-  }, [globalAudioUrl, scenarioEditor.selected, scenarioSelected, updateScenarioScene]);
+  }, [globalAudioUrlRaw, scenarioEditor.selected, scenarioSelected, updateScenarioScene]);
 
   const handleScenarioSliceLoadedMetadata = useCallback((event) => {
     if (!scenarioSelected) return;
@@ -935,10 +936,10 @@ const scenarioSelectedAudioSliceUrl = useMemo(() => resolveAssetUrl(scenarioSele
         videoUrl: String(s.videoUrl || ""),
       }));
     if (!segments.length) return;
-    const payload = { segments, audioUrl: globalAudioUrl || "" };
+    const payload = { segments, audioUrl: globalAudioUrlRaw || "" };
     console.info("assembly_todo_payload", payload);
     setAssemblyHint("TODO: страница монтажа пока не подключена");
-  }, [globalAudioUrl, scenarioScenes]);
+  }, [globalAudioUrlRaw, scenarioScenes]);
 
   const [edges, setEdges, onEdgesChange] = useEdgesState(defaultEdges);
   const edgesRef = useRef([]);
@@ -1740,18 +1741,18 @@ const hydrate = useCallback(() => {
 
                       <div className="clipSB_audioDebugSection">
                         <div className="clipSB_hint" style={{ marginBottom: 6 }}>Полный трек (original audioUrl)</div>
-                        {globalAudioUrl ? (
+                        {globalAudioUrlResolved ? (
                           <audio
-                            key={`full-track-${globalAudioUrl}`}
+                            key={`full-track-${globalAudioUrlResolved}`}
                             className="clipSB_audioPlayer"
                             controls
                             preload="metadata"
-                            src={globalAudioUrl}
+                            src={globalAudioUrlResolved}
                           />
                         ) : (
                           <div className="clipSB_hint" style={{ color: "#ffb4b4" }}>Полный трек не найден: загрузите аудио в Audio node.</div>
                         )}
-                        <div className="clipSB_audioDebugUrl">{globalAudioUrl || "—"}</div>
+                        <div className="clipSB_audioDebugUrl">{globalAudioUrlResolved || "—"}</div>
                       </div>
 
                       <div className="clipSB_audioDebugSection">
@@ -1816,7 +1817,7 @@ const hydrate = useCallback(() => {
                           <div className="clipSB_videoKv"><span>videoUrl</span><span>{scenarioSelected.videoUrl || "—"}</span></div>
                         </details>
                         <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-                          <button className="clipSB_btn clipSB_btnSecondary" onClick={handleScenarioVideoTakeAudio} disabled={scenarioVideoLoading || !globalAudioUrl}>
+                          <button className="clipSB_btn clipSB_btnSecondary" onClick={handleScenarioVideoTakeAudio} disabled={scenarioVideoLoading || !globalAudioUrlRaw}>
                             Взять аудио
                           </button>
                           <button
