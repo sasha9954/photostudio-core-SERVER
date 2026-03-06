@@ -609,6 +609,7 @@ def _validate_planner_scenes_quality(duration: float, scenario_key: str, scenes:
     warnings: list[str] = []
     rejected_reasons: list[str] = []
     scenario = (scenario_key or "").strip().lower()
+    is_weak_clip_plan = bool(scenario == "clip" and duration >= 20 and scene_count == 1)
     if scenario == "clip":
         if duration >= 12 and scene_count < 2:
             warnings.append("scene_count_below_min_for_12s")
@@ -616,6 +617,8 @@ def _validate_planner_scenes_quality(duration: float, scenario_key: str, scenes:
             warnings.append("scene_count_below_min_for_20s")
         if duration >= 30 and scene_count < 4:
             warnings.append("scene_count_below_min_for_30s")
+        if is_weak_clip_plan:
+            warnings.append("weak_clip_plan")
 
     if scene_count == 1:
         only = scenes[0]
@@ -651,6 +654,7 @@ def _validate_planner_scenes_quality(duration: float, scenario_key: str, scenes:
         "warnings": warnings,
         "rejectedReason": rejected_reason,
         "repairRetryUsed": False,
+        "weakClipPlan": is_weak_clip_plan,
     }
 
 
@@ -1045,13 +1049,15 @@ ATMOSPHERIC / STORY INSERTS:
             },
         }
 
-    if validation.get("rejectedReason"):
-        is_clip_mode = (scenario_key or "").strip().lower() == "clip"
+    is_clip_mode = (scenario_key or "").strip().lower() == "clip"
+    should_repair_for_weak_clip = bool(is_clip_mode and validation.get("weakClipPlan"))
+
+    if validation.get("rejectedReason") or should_repair_for_weak_clip:
         if is_clip_mode:
             min_scenes = _minimum_scene_count_for_repair(duration)
             repair_instruction = f"""
 
-REPAIR MODE: предыдущий storyboard отклонён как низкокачественный ({validation.get('rejectedReason')}).
+REPAIR MODE: предыдущий storyboard требует доработки ({validation.get('rejectedReason') or 'weak_clip_plan'}).
 Исправь план и верни новый валидный JSON.
 ЖЁСТКИЕ ТРЕБОВАНИЯ:
 - Минимум {min_scenes} сцен для этой длительности.
@@ -1074,8 +1080,10 @@ REPAIR MODE: предыдущий storyboard отклонён как низко�
             repair_scenes = _normalize_scenes(duration, (repair_json or {}).get("scenes") or []) if isinstance(repair_json, dict) else []
             repair_validation = _validate_planner_scenes_quality(duration, scenario_key, repair_scenes)
             repair_validation["repairRetryUsed"] = True
+            if should_repair_for_weak_clip and len(repair_scenes) == 1:
+                repair_validation["warnings"] = list(repair_validation.get("warnings") or []) + ["weak_clip_plan_single_scene"]
 
-            if repair_scenes and not repair_validation.get("rejectedReason"):
+            if repair_scenes and not repair_validation.get("rejectedReason") and not (should_repair_for_weak_clip and len(repair_scenes) == 1):
                 return {
                     "ok": True,
                     "engine": "gemini",
@@ -1089,6 +1097,8 @@ REPAIR MODE: предыдущий storyboard отклонён как низко�
 
             if scenes:
                 validation["repairRetryUsed"] = True
+                if should_repair_for_weak_clip and len(repair_scenes) == 1:
+                    validation["warnings"] = list(validation.get("warnings") or []) + ["weak_clip_plan_single_scene"]
                 return {
                     "ok": True,
                     "engine": "gemini",

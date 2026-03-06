@@ -497,7 +497,7 @@ function BrainNode({ id, data }) {
           )}
         </div>
 
-        <button className="clipSB_btn" onClick={() => data?.onParse?.(id)} style={{ marginTop: 10 }}>
+        <button className="clipSB_btn" onClick={() => data?.onParse?.(id)} disabled={!!data?.isParsing} style={{ marginTop: 10 }}>
           Разобрать (бесплатно)
         </button>
 
@@ -508,9 +508,23 @@ function BrainNode({ id, data }) {
         ) : null}
         {(!data?.isParsing && !data?.lastParseError && data?.scenePlan?.engine) ? (
           <div className="clipSB_small" style={{ marginTop: 8, opacity: 0.95 }}>
-            engine: <b>{String(data.scenePlan.engine)}</b>{data.scenePlan.modelUsed ? <> · model: <span style={{opacity:0.9}}>{String(data.scenePlan.modelUsed)}</span></> : null}
-            {data.scenePlan.engine === "fallback" && data.scenePlan.hint ? (
-              <div style={{ marginTop: 6, color: "#ffb86c" }}>hint: {String(data.scenePlan.hint).slice(0, 180)}</div>
+            <div>
+              engine: <b>{String(data.scenePlan.engine)}</b>
+              {data.scenePlan.modelUsed ? <> · model: <span style={{ opacity: 0.9 }}>{String(data.scenePlan.modelUsed)}</span></> : null}
+              {typeof data.scenePlan.sceneCount === "number" ? <> · scenes: <b>{String(data.scenePlan.sceneCount)}</b></> : null}
+            </div>
+            {Array.isArray(data.scenePlan.warnings) && data.scenePlan.warnings.length ? (
+              <div style={{ marginTop: 4, color: "#ffb86c" }}>warnings: {data.scenePlan.warnings.join(", ")}</div>
+            ) : null}
+            {data.scenePlan.rejectedReason ? (
+              <div style={{ marginTop: 4, color: "#ff7875" }}>rejectedReason: {String(data.scenePlan.rejectedReason)}</div>
+            ) : null}
+            <div style={{ marginTop: 4 }}>
+              repairRetryUsed: <b>{data.scenePlan.repairRetryUsed ? "true" : "false"}</b>
+              {data.scenePlan.audioHint ? <> · audio.hint: <span style={{ opacity: 0.9 }}>{String(data.scenePlan.audioHint)}</span></> : null}
+            </div>
+            {data.scenePlan.hint ? (
+              <div style={{ marginTop: 4, color: "#ffb86c" }}>hint: {String(data.scenePlan.hint).slice(0, 180)}</div>
             ) : null}
           </div>
         ) : null}
@@ -635,6 +649,7 @@ export default function ClipStoryboardPage() {
   const didHydrateRef = useRef(false);
   const isHydratingRef = useRef(true);
   const selectedEdgeRef = useRef(null);
+  const parseTokenRef = useRef(0);
 
   const [lastSavedAt, setLastSavedAt] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -1047,7 +1062,13 @@ onClipSec: (nodeId, value) => {
                 setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, clipSec: safe } } : x)));
               },
 onParse: async (nodeId) => {
-  setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, isParsing: true } } : x)));
+  const brainCurrent = nodes.find((x) => x.id === nodeId);
+  if (brainCurrent?.data?.isParsing) return;
+
+  const parseToken = parseTokenRef.current + 1;
+  parseTokenRef.current = parseToken;
+
+  setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, isParsing: true, activeParseToken: parseToken } } : x)));
 
   try {
     const brainNow = nodes.find((x) => x.id === nodeId);
@@ -1120,8 +1141,11 @@ onParse: async (nodeId) => {
     const out = await res.json().catch(() => ({}));
     if (!res.ok || !out?.ok) throw new Error(out?.detail || out?.hint || "clip_plan_failed");
 
+    if (parseTokenRef.current !== parseToken) return;
+
     const audioDuration = Number(out?.audioDuration || 30);
     const scenesRaw = Array.isArray(out?.scenes) ? out.scenes : [];
+    const validation = out?.plannerDebug?.validation || {};
 
     // Map to storyboard format (t0/t1/prompt)
     const scenes = scenesRaw
@@ -1172,6 +1196,7 @@ onParse: async (nodeId) => {
                 ...x.data,
                 scenes,
                 isParsing: false,
+                activeParseToken: parseToken,
                 lastParseError: null,
                 lastPlanMeta: {
                   engine: out.engine || "gemini",
@@ -1179,6 +1204,11 @@ onParse: async (nodeId) => {
                   fallbackUsed: !!out.fallbackUsed,
                   hint: out.hint || null,
                   error: out.error || null,
+                  sceneCount: Number(validation.sceneCount ?? scenes.length),
+                  warnings: Array.isArray(validation.warnings) ? validation.warnings : [],
+                  rejectedReason: validation.rejectedReason || null,
+                  repairRetryUsed: !!validation.repairRetryUsed,
+                  audioHint: out?.plannerDebug?.audio?.hint || null,
                 },
                 scenePlan: {
                   engine: out.engine || "gemini",
@@ -1186,6 +1216,11 @@ onParse: async (nodeId) => {
                   hint: out.hint || null,
                   audioDuration,
                   scenes,
+                  sceneCount: Number(validation.sceneCount ?? scenes.length),
+                  warnings: Array.isArray(validation.warnings) ? validation.warnings : [],
+                  rejectedReason: validation.rejectedReason || null,
+                  repairRetryUsed: !!validation.repairRetryUsed,
+                  audioHint: out?.plannerDebug?.audio?.hint || null,
                   refs: { refCharacter, refLocation, refStyle },
                   settings: { scenarioKey, shootKey, styleKey, freezeStyle },
                 },
@@ -1203,8 +1238,9 @@ onParse: async (nodeId) => {
       );
     });
   } catch (err) {
+    if (parseTokenRef.current !== parseToken) return;
     console.error(err);
-    setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, isParsing: false, lastParseError: String(err?.message || err) } } : x)));
+    setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, isParsing: false, activeParseToken: parseToken, lastParseError: String(err?.message || err) } } : x)));
   }
 },
             },
