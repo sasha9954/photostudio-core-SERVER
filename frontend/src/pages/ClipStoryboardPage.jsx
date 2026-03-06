@@ -305,7 +305,6 @@ function TextNode({ id, data }) {
 }
 
 function BrainNode({ id, data }) {
-  const scenario = "clip";
   const shoot = data?.shootKey || "cinema";
   const style = data?.styleKey || "realism";
   const freezeStyle = !!data?.freezeStyle;
@@ -353,7 +352,7 @@ function BrainNode({ id, data }) {
               Сценарий
             </div>
             <div className="clipSB_small" style={{ padding: "10px 12px", borderRadius: 10, background: "rgba(255,255,255,0.04)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.08)" }}>
-              Режим: <b>{scenario}</b>
+              Сценарий: <b>клип</b>
             </div>
           </div>
 
@@ -1012,9 +1011,6 @@ const scenarioSelectedAudioSliceUrl = useMemo(() => resolveAssetUrl(scenarioSele
               onMode: (nodeId, value) => {
                 setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, mode: value } } : x)));
               },
-              onScenario: (nodeId) => {
-                setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, scenarioKey: "clip" } } : x)));
-              },
               onShoot: (nodeId, value) => {
                 setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, shootKey: value } } : x)));
               },
@@ -1323,12 +1319,25 @@ const hydrate = useCallback(() => {
       // sanitize
       const cleanNodes = savedNodes
         .filter((n) => n && typeof n.id === "string" && typeof n.type === "string" && n.position)
-        .map((n) => ({
-          id: n.id,
-          type: n.type,
-          position: n.position,
-          data: n.data || {},
-        }));
+        .map((n) => {
+          const data = { ...(n.data || {}) };
+
+          if (n.type === "brainNode") {
+            data.scenarioKey = "clip";
+            data.mode = "clip";
+          }
+
+          if (n.type === "audioNode") {
+            delete data.audioType;
+          }
+
+          return {
+            id: n.id,
+            type: n.type,
+            position: n.position,
+            data,
+          };
+        });
       const cleanEdges = savedEdges
         .filter((e) => e && typeof e.id === "string" && e.source && e.target)
         .map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle || null, target: e.target, targetHandle: e.targetHandle || null, style: e.style, animated: e.animated, data: e.data }));
@@ -1415,7 +1424,6 @@ const hydrate = useCallback(() => {
       delete d.onFreezeStyle;
       delete d.onStyle;
       delete d.onShoot;
-      delete d.onScenario;
       return {
         id: n.id,
         type: n.type,
@@ -1441,15 +1449,14 @@ const hydrate = useCallback(() => {
         delete d.onClear;
         delete d.onChange;
         delete d.onMode;
-      delete d.onFreezeStyle;
-      delete d.onStyle;
-      delete d.onShoot;
-      delete d.onScenario;
+        delete d.onFreezeStyle;
+        delete d.onStyle;
+        delete d.onShoot;
         return { id: n.id, type: n.type, position: n.position, data: d };
       });
       const serialEdges = edges.map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle || null, target: e.target, targetHandle: e.targetHandle || null }));
       const ok = safeSet(STORE_KEY, JSON.stringify({ nodes: serialNodes, edges: serialEdges }));
-    if (ok) setLastSavedAt(Date.now());
+      if (ok) setLastSavedAt(Date.now());
     };
 
     window.addEventListener("beforeunload", onBeforeUnload);
