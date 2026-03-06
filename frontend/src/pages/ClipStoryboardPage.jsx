@@ -375,6 +375,7 @@ function BrainNode({ id, data }) {
               <option value="verses">по куплетам/припевам</option>
               <option value="mini_story">мини‑история</option>
               <option value="dynamic">динамичный монтаж</option>
+              <option value="clip">клип (performance + монтаж)</option>
             </select>
           </div>
 

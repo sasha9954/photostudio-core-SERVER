@@ -677,6 +677,56 @@ JSON СХЕМА:
   shotType из medium|closeup|mouth_closeup, и sceneText/videoPrompt про singing performance.
 """
 
+    if scenario_key == "clip":
+        rules += """
+
+КОНЦЕПЦИЯ РЕЖИМА "CLIP":
+Это музыкальный клип, состоящий из трёх типов сцен:
+1) PERFORMANCE (lipSync)
+2) RHYTHM MONTAGE
+3) ATMOSPHERIC / STORY INSERTS
+Planner должен смешивать их.
+
+ЛОГИКА РАСПРЕДЕЛЕНИЯ СЦЕН ДЛЯ CLIP:
+- 20–35% сцен: lipSync / performance
+- 40–60% сцен: rhythm montage
+- 15–30% сцен: atmospheric / narrative inserts
+- LipSync сцены НЕ должны идти подряд.
+
+ВЫБОР LIPSYNC СЦЕН:
+LipSync сцены добавляй только если одновременно соблюдено:
+- слышен явный вокал;
+- есть цельная вокальная фраза;
+- это эмоционально сильный момент.
+Приоритетные точки:
+- начало припева;
+- главная строка;
+- эмоциональный пик;
+- переход в припев.
+
+Для lipSync сцены обязательно:
+- sceneType = "lipSync"
+- hasVocals = true
+- isLipSync = true
+- performanceType = "singing_performance"
+- shotType = medium | closeup | mouth_closeup
+
+RHYTHM MONTAGE СЦЕНЫ:
+- sceneType = "visual_rhythm"
+- Границы должны совпадать с сильными долями, дропами и изменением энергии трека.
+- Используй beatAnchor только из:
+  downbeat | snare | drop | phrase_transition
+
+ATMOSPHERIC / STORY INSERTS:
+- sceneType = "vocal" или "visual_rhythm"
+- Используй их, чтобы разбавить performance, показать эмоцию, добавить атмосферу и действие персонажа.
+
+ОГРАНИЧЕНИЯ РЕЖИМА CLIP:
+- Для клипа длительностью до 60 секунд: не более 3 lipSync сцен.
+- Не делай слишком короткие lipSync segments.
+- Не допускай 2–3 lipSync сцены подряд.
+"""
+
     ref_hints = []
     if payload.refCharacter:
         ref_hints.append("Есть реф персонажа (character reference).")
