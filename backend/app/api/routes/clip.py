@@ -941,7 +941,11 @@ def clip_plan(payload: BrainIn):
             },
         )
 
-    model_used = (settings.GEMINI_MODEL or "gemini-2.5-flash").strip()
+    if audio_bytes:
+        model_used = getattr(settings, "GEMINI_VISION_MODEL", None) or "gemini-2.5-flash"
+    else:
+        model_used = getattr(settings, "GEMINI_TEXT_MODEL", None) or "gemini-2.5-flash"
+    model_used = model_used.strip()
 
     system_rules = f"""You are a professional music video director and editor.
 Build the clip storyboard directly from audio/text/refs with strict continuity and rhythm logic.
