@@ -441,6 +441,24 @@ def _normalize_scenes(duration: float, scenes: list[dict]) -> list[dict]:
             continue
         if t1 <= t0:
             continue
+        audio_type = str(s.get("audioType") or "mixed")
+        scene_type = str(s.get("sceneType") or "visual_rhythm")
+        has_vocals = bool(s.get("hasVocals") is True)
+        is_lipsync = bool(s.get("isLipSync") is True or s.get("lipSync") is True)
+        lyric_fragment = str(s.get("lyricFragment") or "").strip()
+        timing_reason = str(s.get("timingReason") or s.get("why") or "")
+
+        wants_lipsync = is_lipsync or scene_type == "lipSync"
+        missing_vocal_phrase = not lyric_fragment
+        instrumental_slice = audio_type == "instrumental" or not has_vocals
+        if wants_lipsync and (instrumental_slice or missing_vocal_phrase):
+            has_vocals = False
+            is_lipsync = False
+            if scene_type == "lipSync":
+                scene_type = "visual_rhythm"
+            fallback_reason = "lipSync disabled: vocal phrase not confirmed for this segment"
+            timing_reason = f"{timing_reason}; {fallback_reason}" if timing_reason else fallback_reason
+
         out.append({
             "id": str(s.get("id") or f"s{i+1:02d}"),
             "start": round(t0, 2),
@@ -449,12 +467,12 @@ def _normalize_scenes(duration: float, scenes: list[dict]) -> list[dict]:
             "sceneText": str(s.get("sceneText") or ""),
             "imagePrompt": str(s.get("imagePrompt") or s.get("prompt") or s.get("sceneText") or ""),
             "videoPrompt": str(s.get("videoPrompt") or ""),
-            "audioType": str(s.get("audioType") or "mixed"),
-            "sceneType": str(s.get("sceneType") or "visual_rhythm"),
-            "hasVocals": bool(s.get("hasVocals") is True),
-            "isLipSync": bool(s.get("isLipSync") is True or s.get("lipSync") is True),
-            "lyricFragment": str(s.get("lyricFragment") or ""),
-            "timingReason": str(s.get("timingReason") or s.get("why") or ""),
+            "audioType": audio_type,
+            "sceneType": scene_type,
+            "hasVocals": has_vocals,
+            "isLipSync": is_lipsync,
+            "lyricFragment": lyric_fragment,
+            "timingReason": timing_reason,
             "beatAnchor": str(s.get("beatAnchor") or ""),
             "performanceType": str(s.get("performanceType") or "cinematic_visual"),
             "shotType": str(s.get("shotType") or ""),
