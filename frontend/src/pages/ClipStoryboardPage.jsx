@@ -186,6 +186,59 @@ async function uploadAsset(file) {
   return await res.json();
 }
 
+function normalizeRefData(data, kindHint = "") {
+  const kind = String(data?.kind || kindHint || "");
+  const maxFiles = kind === "ref_style" ? 1 : 5;
+  const refsRaw = Array.isArray(data?.refs)
+    ? data.refs
+    : (data?.url ? [{ url: data.url, name: data?.name || "" }] : []);
+  const refs = refsRaw
+    .map((item) => ({
+      url: String(item?.url || "").trim(),
+      name: String(item?.name || "").trim(),
+    }))
+    .filter((item) => !!item.url)
+    .slice(0, maxFiles);
+
+  return {
+    ...data,
+    refs,
+  };
+}
+
+function stripFunctionsDeep(value) {
+  if (typeof value === "function") return undefined;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => stripFunctionsDeep(item))
+      .filter((item) => item !== undefined);
+  }
+  if (value && typeof value === "object") {
+    const next = {};
+    for (const [key, nested] of Object.entries(value)) {
+      const cleaned = stripFunctionsDeep(nested);
+      if (cleaned !== undefined) next[key] = cleaned;
+    }
+    return next;
+  }
+  return value;
+}
+
+function serializeNodesForStorage(nodes) {
+  return nodes.map((n) => {
+    const normalizedData = n.type === "refNode"
+      ? normalizeRefData(n.data || {}, n?.data?.kind || "")
+      : (n.data || {});
+    const data = stripFunctionsDeep(normalizedData) || {};
+    return {
+      id: n.id,
+      type: n.type,
+      position: n.position,
+      data,
+    };
+  });
+}
+
 
 async function getAudioDurationSec(url) {
   // Browser-side duration probe (metadata only)
@@ -539,9 +592,9 @@ function RefNode({ id, data }) {
   };
 
   const onInputChange = async (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    await data?.onPickImage?.(id, f);
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    await data?.onPickImage?.(id, files);
     e.target.value = "";
   };
 
@@ -587,6 +640,7 @@ function RefNode({ id, data }) {
           ref={inputRef}
           type="file"
           accept="image/*"
+          multiple={kind !== "ref_style"}
           style={{ display: "none" }}
           onChange={onInputChange}
         />
@@ -983,7 +1037,12 @@ const scenarioSelectedAudioSliceUrl = useMemo(() => resolveAssetUrl(scenarioSele
   }, [globalAudioUrlRaw, scenarioScenes]);
 
   const [edges, setEdges, onEdgesChange] = useEdgesState(defaultEdges);
+  const nodesRef = useRef([]);
   const edgesRef = useRef([]);
+
+  useEffect(() => {
+    nodesRef.current = nodes || [];
+  }, [nodes]);
 
   useEffect(() => {
     edgesRef.current = edges || [];
@@ -1306,29 +1365,42 @@ onParse: async (nodeId) => {
             data: {
               ...base.data,
               onPickImage: async (nodeId, file) => {
-                if (!file) return;
+                const pickedFiles = Array.isArray(file) ? file : (file ? [file] : []);
+                if (!pickedFiles.length) return;
                 setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, uploading: true } } : x)));
                 try {
-                  const out = await uploadAsset(file);
-                  const url = out?.url || "";
-                  setNodes((prev) => prev.map((x) => {
-                    if (x.id !== nodeId) return x;
-                    const maxFiles = x?.data?.kind === "ref_style" ? 1 : 5;
-                    const prevRefs = Array.isArray(x?.data?.refs) ? x.data.refs : (x?.data?.url ? [{ url: x.data.url, name: x?.data?.name || "" }] : []);
-                    const nextRefs = maxFiles === 1
-                      ? [{ url, name: out?.name || file.name }]
-                      : prevRefs.concat({ url, name: out?.name || file.name }).slice(0, maxFiles);
-                    return { ...x, data: { ...x.data, refs: nextRefs, uploading: false } };
-                  }));
-                } catch (err) {
-                  console.error(err);
+                  const targetNode = nodesRef.current.find((x) => x.id === nodeId);
+                  const maxFiles = targetNode?.data?.kind === "ref_style" ? 1 : 5;
+                  const prevRefs = normalizeRefData(targetNode?.data || {}, targetNode?.data?.kind || "").refs;
+                  const room = Math.max(0, maxFiles - (maxFiles === 1 ? 0 : prevRefs.length));
+                  const queue = (maxFiles === 1 ? pickedFiles.slice(0, 1) : pickedFiles.slice(0, room));
+
+                  for (const oneFile of queue) {
+                    try {
+                      const out = await uploadAsset(oneFile);
+                      const url = String(out?.url || "").trim();
+                      if (!url) continue;
+                      setNodes((prev) => prev.map((x) => {
+                        if (x.id !== nodeId) return x;
+                        const nextPrevRefs = normalizeRefData(x?.data || {}, x?.data?.kind || "").refs;
+                        const nextMax = x?.data?.kind === "ref_style" ? 1 : 5;
+                        const nextRefs = nextMax === 1
+                          ? [{ url, name: out?.name || oneFile.name }]
+                          : nextPrevRefs.concat({ url, name: out?.name || oneFile.name }).slice(0, nextMax);
+                        return { ...x, data: { ...x.data, refs: nextRefs } };
+                      }));
+                    } catch (err) {
+                      console.error(err);
+                    }
+                  }
+                } finally {
                   setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, uploading: false } } : x)));
                 }
               },
               onRemoveImage: (nodeId, idx) => {
                 setNodes((prev) => prev.map((x) => {
                   if (x.id !== nodeId) return x;
-                  const prevRefs = Array.isArray(x?.data?.refs) ? x.data.refs : (x?.data?.url ? [{ url: x.data.url, name: x?.data?.name || "" }] : []);
+                  const prevRefs = normalizeRefData(x?.data || {}, x?.data?.kind || "").refs;
                   return { ...x, data: { ...x.data, refs: prevRefs.filter((_, i) => i !== idx) } };
                 }));
               },
@@ -1427,6 +1499,19 @@ const hydrate = useCallback(() => {
             delete data.audioType;
           }
 
+          if (n.type === "refNode") {
+            const normalized = normalizeRefData(data, data?.kind || "");
+            normalized.uploading = false;
+            delete normalized.url;
+            delete normalized.name;
+            return {
+              id: n.id,
+              type: n.type,
+              position: n.position,
+              data: normalized,
+            };
+          }
+
           return {
             id: n.id,
             type: n.type,
@@ -1513,24 +1598,7 @@ const hydrate = useCallback(() => {
     if (isHydratingRef.current) return;
 
     // strip handlers from data
-    const serialNodes = nodes.map((n) => {
-      const d = { ...(n.data || {}) };
-      delete d.onUpload;
-      delete d.onClear;
-      delete d.onChange;
-      delete d.onMode;
-      delete d.onFreezeStyle;
-      delete d.onStyle;
-      delete d.onShoot;
-      delete d.onPickImage;
-      delete d.onRemoveImage;
-      return {
-        id: n.id,
-        type: n.type,
-        position: n.position,
-        data: d,
-      };
-    });
+    const serialNodes = serializeNodesForStorage(nodes);
     const serialEdges = edges.map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle || null, target: e.target, targetHandle: e.targetHandle || null }));
 
     const ok = safeSet(STORE_KEY, JSON.stringify({ nodes: serialNodes, edges: serialEdges }));
@@ -1543,19 +1611,7 @@ const hydrate = useCallback(() => {
       if (!didHydrateRef.current) return;
       if (isHydratingRef.current) return;
 
-      const serialNodes = nodes.map((n) => {
-        const d = { ...(n.data || {}) };
-        delete d.onUpload;
-        delete d.onClear;
-        delete d.onChange;
-        delete d.onMode;
-        delete d.onFreezeStyle;
-        delete d.onStyle;
-        delete d.onShoot;
-      delete d.onPickImage;
-      delete d.onRemoveImage;
-        return { id: n.id, type: n.type, position: n.position, data: d };
-      });
+      const serialNodes = serializeNodesForStorage(nodes);
       const serialEdges = edges.map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle || null, target: e.target, targetHandle: e.targetHandle || null }));
       const ok = safeSet(STORE_KEY, JSON.stringify({ nodes: serialNodes, edges: serialEdges }));
       if (ok) setLastSavedAt(Date.now());
