@@ -448,14 +448,21 @@ def _normalize_scenes(duration: float, scenes: list[dict]) -> list[dict]:
         lyric_fragment = str(s.get("lyricFragment") or "").strip()
         timing_reason = str(s.get("timingReason") or s.get("why") or "")
 
+        performance_type = str(s.get("performanceType") or "cinematic_visual")
+        shot_type = str(s.get("shotType") or "")
+
         wants_lipsync = is_lipsync or scene_type == "lipSync"
         missing_vocal_phrase = not lyric_fragment
         instrumental_slice = audio_type == "instrumental" or not has_vocals
         if wants_lipsync and (instrumental_slice or missing_vocal_phrase):
-            has_vocals = False
+            only_missing_phrase_issue = missing_vocal_phrase and audio_type != "instrumental" and has_vocals
+            if not only_missing_phrase_issue:
+                has_vocals = False
             is_lipsync = False
-            if scene_type == "lipSync":
-                scene_type = "visual_rhythm"
+            scene_type = "visual_rhythm"
+            performance_type = "cinematic_visual"
+            if shot_type == "mouth_closeup":
+                shot_type = "medium"
             fallback_reason = "lipSync disabled: vocal phrase not confirmed for this segment"
             timing_reason = f"{timing_reason}; {fallback_reason}" if timing_reason else fallback_reason
 
@@ -474,8 +481,8 @@ def _normalize_scenes(duration: float, scenes: list[dict]) -> list[dict]:
             "lyricFragment": lyric_fragment,
             "timingReason": timing_reason,
             "beatAnchor": str(s.get("beatAnchor") or ""),
-            "performanceType": str(s.get("performanceType") or "cinematic_visual"),
-            "shotType": str(s.get("shotType") or ""),
+            "performanceType": performance_type,
+            "shotType": shot_type,
         })
     if not out:
         return out

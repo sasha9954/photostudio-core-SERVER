@@ -460,21 +460,6 @@ function BrainNode({ id, data }) {
           </label>
         </div>
 
-        <div style={{ marginTop: 10 }}>
-          <div className="clipSB_hint" style={{ marginBottom: 6 }}>
-            Формат кадра
-          </div>
-          <select
-            className="clipSB_select"
-            value={data?.formatKey || "9:16"}
-            onChange={(e) => data?.onFormat?.(id, e.target.value)}
-          >
-            <option value="9:16">9:16 (вертикально)</option>
-            <option value="1:1">1:1 (квадрат)</option>
-            <option value="16:9">16:9 (широко)</option>
-          </select>
-        </div>
-
         <div className="clipSB_small" style={{ marginTop: 10 }}>
           Следующий шаг: кнопка “Разобрать” → ScenePlan (таймкоды/описания).
         </div>
@@ -1051,10 +1036,6 @@ const scenarioSelectedAudioSliceUrl = useMemo(() => resolveAssetUrl(scenarioSele
               onWantLipSync: (nodeId, checked) => {
                 setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, wantLipSync: !!checked } } : x)));
               },
-              onFormat: (nodeId, value) => {
-                const v = value === "16:9" || value === "1:1" ? value : "9:16";
-                setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, formatKey: v } } : x)));
-              },
                             onClipMode: (nodeId, mode) => {
                 const m = mode === "manual" ? "manual" : "auto";
                 setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, clipMode: m } } : x)));
@@ -1108,7 +1089,6 @@ onParse: async (nodeId) => {
     const styleKey = brainNow.data?.styleKey || "realism";
     const freezeStyle = !!brainNow.data?.freezeStyle;
     const wantLipSync = !!brainNow.data?.wantLipSync;
-    const formatKey = brainNow.data?.formatKey || "9:16";
 
     const audioUrl = audioNode?.type === "audioNode" ? (audioNode.data?.audioUrl || "") : "";
     const audioType = audioNode?.type === "audioNode" ? (audioNode.data?.audioType || "bg") : null; // bg | song
@@ -1123,7 +1103,6 @@ onParse: async (nodeId) => {
       styleKey,
       freezeStyle,
       wantLipSync,
-      formatKey,
       refCharacter: refCharacter || null,
       refLocation: refLocation || null,
       refStyle: refStyle || null,
