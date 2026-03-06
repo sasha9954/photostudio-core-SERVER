@@ -239,6 +239,7 @@ class BrainIn(BaseModel):
     # informational (optional)
     audioType: str | None = None     # "song" | "bg"
     textType: str | None = None      # "lyrics" | "story" | "notes"
+    wantLipSync: bool | None = None
 
 
 def _extract_gemini_text(resp: dict) -> str:
@@ -407,7 +408,16 @@ def _fallback_plan(duration: float, text: str | None):
             "why": "fallback slicing",
             "sceneText": ch,
             "imagePrompt": f"Cinematic scene: {ch}",
-            "videoPrompt": "Cinematic camera movement, dramatic lighting, film grain"
+            "videoPrompt": "Cinematic camera movement, dramatic lighting, film grain",
+            "audioType": "mixed",
+            "sceneType": "visual_rhythm",
+            "hasVocals": False,
+            "isLipSync": False,
+            "lyricFragment": "",
+            "timingReason": "fallback slicing by equal-duration segments",
+            "beatAnchor": "bar_start",
+            "performanceType": "cinematic_visual",
+            "shotType": "wide",
         })
         t = t1
         if t >= duration:
@@ -439,6 +449,15 @@ def _normalize_scenes(duration: float, scenes: list[dict]) -> list[dict]:
             "sceneText": str(s.get("sceneText") or ""),
             "imagePrompt": str(s.get("imagePrompt") or s.get("prompt") or s.get("sceneText") or ""),
             "videoPrompt": str(s.get("videoPrompt") or ""),
+            "audioType": str(s.get("audioType") or "mixed"),
+            "sceneType": str(s.get("sceneType") or "visual_rhythm"),
+            "hasVocals": bool(s.get("hasVocals") is True),
+            "isLipSync": bool(s.get("isLipSync") is True or s.get("lipSync") is True),
+            "lyricFragment": str(s.get("lyricFragment") or ""),
+            "timingReason": str(s.get("timingReason") or s.get("why") or ""),
+            "beatAnchor": str(s.get("beatAnchor") or ""),
+            "performanceType": str(s.get("performanceType") or "cinematic_visual"),
+            "shotType": str(s.get("shotType") or ""),
         })
     if not out:
         return out
@@ -504,6 +523,9 @@ def clip_plan(payload: BrainIn):
     shoot_key = (payload.shootKey or "cinema").strip()
     style_key = (payload.styleKey or "realism").strip()
     freeze = bool(payload.freezeStyle)
+    audio_type_hint = (payload.audioType or "").strip().lower()
+    text_type_hint = (payload.textType or "").strip().lower()
+    want_lipsync = bool(payload.wantLipSync)
 
     rules = f"""Ты — режиссёр монтажа музыкального клипа.
 Нужно построить SMART storyboard по треку и (если дан) тексту.
@@ -514,10 +536,30 @@ def clip_plan(payload: BrainIn):
 - Длительность трека: ~{duration:.1f} секунд.
 - Сцены должны покрывать ВЕСЬ таймлайн от 0 до {duration:.1f}.
 - Делай ~6–9 сцен на 30–60 сек (адаптируй под длительность).
+- Сначала классифицируй тип аудио для каждой сцены: instrumental | song_with_vocals | speech | mixed.
+- Для каждой сцены укажи sceneType: visual_rhythm | vocal | lipSync.
 - Переходы делай на музыкальных акцентах/снейре (каждый 2-й или 4-й удар), но не дроби бессмысленно.
 - Если есть вокал/слова — границы сцен ставь на смысловых фразах/переходах (куплет/припев/бридж).
 - Стиль: {style_key}. Съёмка: {shoot_key}. FreezeStyle: {freeze}.
 - Если текста нет — всё равно делай осмысленный клиповый план по музыке.
+
+ПРАВИЛА ПО ВОКАЛУ И LIPSYNC:
+A) Если в аудио есть вокал:
+- различай инструментальные и вокальные отрезки;
+- отмечай hasVocals=true только там, где реально слышен голос.
+
+B) Если сцена lipSync (isLipSync=true или sceneType=lipSync):
+- выбирай t0/t1 только вокруг целой вокальной фразы;
+- начало не должно попадать в середину слова;
+- конец не должен обрывать слово/слог;
+- добавь небольшой pre-roll до старта пения и небольшой tail после конца фразы;
+- lyricFragment должен содержать короткий фрагмент исполняемой фразы;
+- sceneText и videoPrompt ОБЯЗАНЫ явно описывать singing performance;
+- в videoPrompt укажи эмоцию, интенсивность, дистанцию камеры и mouth-visible framing.
+
+C) Если lipSync=false:
+- ориентируй t0/t1 на ритм, бит, переходы, дропы и изменение энергии;
+- выбирай музыкально цельные куски, не режь между сильными долями без причины.
 
 JSON СХЕМА:
 {{
@@ -528,6 +570,15 @@ JSON СХЕМА:
       "start": number,
       "end": number,
       "why": "коротко почему тут переход",
+      "audioType": "instrumental | song_with_vocals | speech | mixed",
+      "sceneType": "visual_rhythm | vocal | lipSync",
+      "hasVocals": true,
+      "isLipSync": false,
+      "lyricFragment": "короткий фрагмент вокальной фразы или пусто",
+      "timingReason": "почему выбраны именно такие t0/t1",
+      "beatAnchor": "например: downbeat_1 | snare_2_4 | vocal_phrase_start",
+      "performanceType": "cinematic_visual | singing_performance | narrative_vocal",
+      "shotType": "wide | medium | closeup | mouth_closeup",
       "sceneText": "что происходит в кадре",
       "imagePrompt": "промт для генерации картинки",
       "videoPrompt": "промт движения камеры/анимации (3–5 сек)"
@@ -539,6 +590,7 @@ JSON СХЕМА:
 - start/end в секундах, с 1–2 знаками после запятой.
 - end строго > start.
 - Последняя сцена end = {duration:.1f}.
+- Если isLipSync=true: performanceType="singing_performance" и shotType должен обеспечивать видимость рта.
 """
 
     ref_hints = []
@@ -554,6 +606,11 @@ JSON СХЕМА:
         extra += "\n" + " ".join(ref_hints)
     if text:
         extra += "\nТЕКСТ/СМЫСЛ (может быть история или слова песни):\n" + text[:4000]
+    if audio_type_hint:
+        extra += f"\nПодсказка о типе аудио от UI: {audio_type_hint}"
+    if text_type_hint:
+        extra += f"\nПодсказка о типе текста от UI: {text_type_hint}"
+    extra += f"\nФлаг wantLipSync от UI: {want_lipsync}"
 
     parts = [{"text": rules + extra}]
 

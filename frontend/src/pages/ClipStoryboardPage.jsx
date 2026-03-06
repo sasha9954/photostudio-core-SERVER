@@ -1170,6 +1170,15 @@ onParse: async (nodeId) => {
           audioSliceLoadError: s.audioSliceLoadError || "",
           videoUrl: s.videoUrl || "",
           why: s.why || "",
+          audioType: s.audioType || "mixed",
+          sceneType: s.sceneType || "visual_rhythm",
+          hasVocals: !!s.hasVocals,
+          isLipSync: !!(s.isLipSync ?? s.lipSync),
+          lyricFragment: s.lyricFragment || "",
+          timingReason: s.timingReason || s.why || "",
+          beatAnchor: s.beatAnchor || "",
+          performanceType: s.performanceType || "cinematic_visual",
+          shotType: s.shotType || "",
         };
       })
       .filter((s) => Number.isFinite(s.t0) && Number.isFinite(s.t1) && s.t1 > s.t0);
