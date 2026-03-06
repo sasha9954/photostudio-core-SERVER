@@ -16,7 +16,6 @@ from PIL import Image, ImageDraw
 
 from app.core.config import settings
 from app.core.static_paths import ASSETS_DIR, ensure_static_dirs, asset_url
-from app.engine.audio_analyzer import analyze_audio
 from app.engine.gemini_rest import post_generate_content
 
 router = APIRouter()
@@ -218,12 +217,13 @@ class BrainRefsIn(BaseModel):
     character: list[RefUrlItem] = []
     location: list[RefUrlItem] = []
     props: list[RefUrlItem] = []
-    style: RefUrlItem | None = None
+    style: RefUrlItem | list[RefUrlItem] | None = None
 
 
 class BrainIn(BaseModel):
     audioUrl: str | None = None
     text: str | None = None
+    mode: str | None = None
 
     # brain settings (optional)
     scenarioKey: str | None = None   # e.g. "beat_rhythm" | "song_meaning"
@@ -782,667 +782,237 @@ def _build_planning_semantics(
 
 @router.post("/clip/plan")
 def clip_plan(payload: BrainIn):
-    """SMART ScenePlan: returns timecoded scenes across whole audio."""
+    """Gemini-first clip planner: Gemini analyzes audio/text/refs and returns strict JSON storyboard."""
     text = (payload.text or "").strip()
+    mode = (getattr(payload, "mode", None) or payload.scenarioKey or "clip").strip().lower() or "clip"
 
     duration, audio_bytes, audio_mime, audio_debug = _load_audio_for_planner(payload.audioUrl)
-    audio_analysis = None
-    audio_analysis_hint = "audio_url_missing"
-    if payload.audioUrl:
-        analysis_path = _resolve_audio_asset_path(payload.audioUrl)
-        if analysis_path and os.path.isfile(analysis_path):
-            try:
-                audio_analysis = analyze_audio(analysis_path)
-                audio_analysis_hint = "audio_analysis_loaded_from_local_asset"
-            except Exception as e:
-                audio_analysis = None
-                audio_analysis_hint = f"audio_analysis_failed:{str(e)[:200]}"
-        else:
-            audio_analysis_hint = "audio_analysis_path_not_resolved"
-    empty_validation_debug = {
-        "scenario": "clip",
-        "sceneCount": 0,
-        "emptySceneTextCount": 0,
-        "emptyImagePromptCount": 0,
-        "emptyVideoPromptCount": 0,
-        "emptyCoreSceneCount": 0,
-        "warnings": [],
-        "rejectedReason": None,
-        "repairRetryUsed": False,
-    }
 
-    scenario_key = "clip"
-    shoot_key = (payload.shootKey or "cinema").strip()
-    style_key = (payload.styleKey or "realism").strip()
-    freeze = bool(payload.freezeStyle)
-    audio_type_hint = (payload.audioType or "").strip().lower()
-    text_type_hint = (payload.textType or "").strip().lower()
-    want_lipsync = bool(payload.wantLipSync)
-
-    def _normalize_ref_list(items, max_items: int = 5):
+    def _normalize_ref_list(items, max_items: int = 8):
         out = []
         if not items:
             return out
         for it in items:
-            url = str(getattr(it, "url", "") or "").strip()
+            if isinstance(it, dict):
+                url = str(it.get("url") or "").strip()
+            else:
+                url = str(getattr(it, "url", "") or "").strip()
             if url:
                 out.append(url)
         return out[:max_items]
 
     refs_obj = payload.refs
-    character_refs = _normalize_ref_list((refs_obj.character if refs_obj else None) or payload.characterRefs, 5)
-    location_refs = _normalize_ref_list((refs_obj.location if refs_obj else None) or payload.locationRefs, 5)
-    props_refs = _normalize_ref_list((refs_obj.props if refs_obj else None) or payload.propsRefs, 5)
-    style_ref = str((refs_obj.style.url if refs_obj and refs_obj.style else "") or (payload.styleRef.url if payload.styleRef else "") or "").strip()
+    character_refs = _normalize_ref_list((refs_obj.character if refs_obj else None) or payload.characterRefs)
+    location_refs = _normalize_ref_list((refs_obj.location if refs_obj else None) or payload.locationRefs)
+    props_refs = _normalize_ref_list((refs_obj.props if refs_obj else None) or payload.propsRefs)
 
-    # legacy compatibility
+    style_refs = []
+    if refs_obj and getattr(refs_obj, "style", None):
+        style_value = refs_obj.style
+        if isinstance(style_value, list):
+            style_refs = _normalize_ref_list(style_value)
+        else:
+            u = str(getattr(style_value, "url", "") or "").strip()
+            if u:
+                style_refs = [u]
+    if not style_refs and payload.styleRef:
+        u = str(getattr(payload.styleRef, "url", "") or "").strip()
+        if u:
+            style_refs = [u]
+
     if not character_refs and payload.refCharacter:
         character_refs = [str(payload.refCharacter).strip()]
     if not location_refs and payload.refLocation:
         location_refs = [str(payload.refLocation).strip()]
     if not props_refs and payload.refItems:
         props_refs = [str(payload.refItems).strip()]
-    if not style_ref and payload.refStyle:
-        style_ref = str(payload.refStyle).strip()
+    if not style_refs and payload.refStyle:
+        style_refs = [str(payload.refStyle).strip()]
 
-    planning_semantics = _build_planning_semantics(
-        text=text,
-        scenario_key=scenario_key,
-        audio_type_hint=audio_type_hint,
-        text_type_hint=text_type_hint,
-        want_lipsync=want_lipsync,
-        character_refs=character_refs,
-        location_refs=location_refs,
-        props_refs=props_refs,
-        style_key=style_key,
-    )
+    api_key = (settings.GEMINI_API_KEY or "").strip()
+    if not api_key:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "code": "GEMINI_API_KEY_MISSING",
+                "detail": "Gemini API key is missing for clip planning",
+            },
+        )
 
-    product_distribution_enabled = bool(
-        planning_semantics.get("productMode") and planning_semantics.get("productRefCount", 0) > 1
-    )
+    model_used = (settings.GEMINI_MODEL or "gemini-2.5-flash").strip()
 
-    planner_debug_base = {
-        "audio": audio_debug,
-        "audioAnalysis": audio_analysis,
-        "audioAnalysisHint": audio_analysis_hint,
-        "planningSemantics": planning_semantics,
-        "productDistributionEnabled": product_distribution_enabled,
+    system_rules = f"""You are a professional music video director and editor.
+Build the clip storyboard directly from audio/text/refs with strict continuity and rhythm logic.
+Return ONLY valid JSON object, no markdown, no explanation, no code fences.
+
+Hard rules:
+- Analyze audio yourself: BPM, sections, vocal phrases, energy events.
+- Cover full track from 0 to track.durationSec with no gaps and no overlap between scenes.
+- Scene durations should be logical: 1-2 sec only for fast inserts, 2-4 sec common, 4-6 sec atmospheric.
+- Scene boundaries should align with beat accents, section transitions, and vocal phrase boundaries.
+- Do not invent random disconnected scenes.
+- Maintain continuity: same character identity, same world/location logic, same style language.
+- If refs are provided, refs are source of truth and have priority over free imagination.
+- lipSyncText must be non-empty only when there is real vocal phrase in that scene.
+- If no audio is available, still build coherent storyboard from text+refs.
+- If no text/refs, still build coherent storyboard from audio only.
+
+Response schema (all keys required):
+{{
+  "track": {{"durationSec": number, "bpm": number, "timeSignature": string, "energyProfile": string}},
+  "sections": [{{"start": number, "end": number, "type": string, "energy": string}}],
+  "vocalPhrases": [{{"start": number, "end": number, "text": string}}],
+  "energyEvents": [{{"time": number, "type": string, "description": string}}],
+  "scenes": [{{
+    "id": "scene_001",
+    "start": number,
+    "end": number,
+    "sceneType": string,
+    "shotPurpose": string,
+    "visualDescription": string,
+    "visualPrompt": string,
+    "lipSyncText": string,
+    "camera": string,
+    "motion": string,
+    "reason": string
+  }}]
+}}"""
+
+    user_input = {
+        "mode": mode,
+        "audioUrl": payload.audioUrl or "",
+        "audioDurationHintSec": duration,
+        "text": text,
+        "refs": {
+            "character": character_refs,
+            "location": location_refs,
+            "style": style_refs,
+            "props": props_refs,
+        },
     }
 
-    # If no key -> fallback
-    if not (settings.GEMINI_API_KEY or "").strip():
-        scenes = _fallback_plan(duration, text)
-        return {
-            "ok": True,
-            "engine": "fallback",
-            "audioDuration": duration,
-            "scenes": scenes,
-            "plannerDebug": {**planner_debug_base, "validation": empty_validation_debug},
-            "modelUsed": None,
-            "fallbackUsed": False,
-            "hint": "no_gemini_key",
-            "error": {
-                "code": "GENERATION_FAILED",
-                "hint": "no_gemini_key",
-                "modelUsed": None,
-                "fallbackUsed": False,
-            },
-        }
-
-    rules = f"""Ты — режиссёр монтажа музыкального клипа.
-Нужно построить SMART storyboard по треку и (если дан) тексту.
-Цель: умные таймкоды смены сцен по смыслу вокала/слов и по ритму/биту.
-
-ОБЯЗАТЕЛЬНО:
-- Верни ТОЛЬКО JSON (без пояснений, без Markdown).
-- Длительность трека: ~{duration:.1f} секунд.
-- Сцены должны покрывать ВЕСЬ таймлайн от 0 до {duration:.1f}.
-- Делай ~6–9 сцен на 30–60 сек (адаптируй под длительность).
-- Сначала классифицируй тип аудио для каждой сцены: instrumental | song_with_vocals | speech | mixed.
-- Для каждой сцены укажи sceneType: visual_rhythm | vocal | lipSync.
-- Переходы делай на музыкальных акцентах/снейре (каждый 2-й или 4-й удар), но не дроби бессмысленно.
-- Если есть вокал/слова — границы сцен ставь на смысловых фразах/переходах (куплет/припев/бридж).
-- Стиль: {style_key}. Съёмка: {shoot_key}. FreezeStyle: {freeze}.
-- Если текста нет — всё равно делай осмысленный клиповый план по музыке.
-- Все текстовые поля в JSON возвращай ТОЛЬКО на русском языке.
-- Даже если песня/текст не на русском, служебные поля planner всё равно должны быть на русском.
-- Поля why, sceneText, lyricFragment, timingReason, imagePrompt, videoPrompt — всегда только русский.
-
-КОНТИНЬЮИТИ И LOCK-ПРАВИЛА (ОБЯЗАТЕЛЬНО):
-A) Если есть styleRef: это STYLE LOCK (высший приоритет).
-- Это глобальный стиль всего ролика.
-- Все сцены, персонажи, локации и предметы должны быть стилизованы под styleRef.
-- Нельзя смешивать несвязанные стили при наличии styleRef.
-
-B) Если есть characterRefs[]: это IDENTITY LOCK.
-- Все изображения characterRefs описывают одного персонажа.
-- Во всех сценах сохраняй лицо, образ и идентичность персонажа.
-- Нельзя менять персонажа между сценами.
-
-C) Если есть locationRefs[]: это WORLD LOCK.
-- Если locationRefs несколько, построй единый world profile и логичные зоны мира.
-- Нельзя распределять locationRefs по сценам 1-к-1 без общей логики.
-- Если locationRefs один — все сцены в рамках одного мира.
-- Если locationRefs нет — придумай мир, но сохрани единый стиль.
-
-D) Если есть propsRefs[]: это PROPS LOCK.
-- Используй эти предметы как важные props в сценах.
-- Не теряй предметы случайно между сценами.
-- Не обязательно показывать все предметы в каждом кадре.
-
-E) Если текста нет:
-- Строй свободный нарратив внутри зафиксированного мира (free narrative inside locked world).
-- Нельзя допускать случайные смысловые, локационные и стилистические скачки.
-
-F) Если текст есть:
-- Текст — это story guidance по смыслу сцен.
-- Но текст не должен ломать continuity: identity/location/style lock сохраняются обязательно.
-
-ПРАВИЛА ПО ВОКАЛУ И LIPSYNC:
-A) ПРИОРИТЕТ АНАЛИЗА ВОКАЛА:
-- Если textType_hint=lyrics ИЛИ audioType_hint=song ИЛИ wantLipSync=true,
-  сначала найди вокальные фразы (границы строк/фраз/дыхания),
-  и только потом уточняй переходы по ритму/биту.
-- В этих режимах нельзя строить план только от ритма, игнорируя вокальные фразы.
-
-B) Если в аудио есть вокал:
-- различай инструментальные и вокальные отрезки;
-- отмечай hasVocals=true только там, где реально слышен голос.
-
-- Если wantLipSync=true и в аудио есть вокал:
-  MUST включить минимум 1 lipSync сцену,
-  предпочтительно 1–2 lipSync сцены в подходящих местах трека;
-  каждая lipSync сцена должна быть вокруг ЦЕЛЬНОЙ вокальной фразы.
-
-C) Если сцена lipSync (isLipSync=true или sceneType=lipSync):
-- выбирай t0/t1 только вокруг целой вокальной фразы;
-- начало не должно попадать в середину слова;
-- конец не должен обрывать слово/слог;
-- segment должен покрывать цельную исполняемую фразу, пригодную для синхронизации губ;
-- segment нельзя делать слишком коротким, если фраза ещё продолжается;
-- нельзя резать в середине слова, слога или дыхания;
-- предпочитай законченные микро-фразы, а не обрезанные фрагменты;
-- для lipSync тайминга используй ЧИСЛЕННЫЕ ГРАНИЦЫ:
-  t0 = start_of_vocal_phrase - 0.15..0.30 sec,
-  t1 = end_of_vocal_phrase + 0.10..0.25 sec;
-- prefer duration roughly 2.0–6.0 sec when possible;
-- avoid ultra-short segments unless the vocal phrase is truly short;
-- if phrase is longer, prefer complete expressive fragment rather than clipped fragment;
-- t0 should align just before audible phrase onset;
-- t1 should align just after phrase resolution / breath / phrase tail;
-- lyricFragment должен содержать короткий фрагмент исполняемой фразы;
-- lyricFragment должен описывать именно тот фрагмент, который реально исполняется в диапазоне t0/t1;
-- sceneText и videoPrompt ОБЯЗАНЫ явно описывать singing performance;
-- в videoPrompt укажи эмоцию, интенсивность, дистанцию камеры и mouth-visible framing.
-
-- ЖЁСТКАЯ СОГЛАСОВАННОСТЬ ПОЛЕЙ ДЛЯ LIPSYNC:
-  если isLipSync=true, то:
-  * sceneType MUST быть "lipSync"
-  * hasVocals MUST быть true
-  * performanceType MUST быть "singing_performance"
-  * shotType MUST быть одним из: medium | closeup | mouth_closeup
-  * sceneText/videoPrompt MUST описывать singing performance
-
-D) Если lipSync=false:
-- ориентируй t0/t1 на ритм, бит, переходы, дропы и изменение энергии;
-- выбирай музыкально цельные куски, не режь между сильными долями без причины.
-
-E) Для sceneType=visual_rhythm:
-- segment должен начинаться и заканчиваться на музыкально устойчивой точке;
-- избегай случайного реза между сильными долями;
-- если есть явный переход / drop / accent / bar boundary — предпочитай его как границу;
-- prefer stable boundaries near 2-beat / 4-beat / bar-like accents;
-- avoid jittery timing such as meaningless 0.7–1.1 sec cuts unless explicitly justified.
-
-F) КАЧЕСТВО И СОГЛАСОВАННОСТЬ ПОЛЕЙ:
-- Если sceneType="lipSync":
-  * lyricFragment MUST NOT be empty
-  * hasVocals MUST be true
-  * performanceType MUST be "singing_performance"
-  * shotType MUST be one of: medium | closeup | mouth_closeup
-  * timingReason должен объяснять, почему этот кусок удобен для lip-sync
-- Если sceneType="visual_rhythm":
-  * lyricFragment may be empty
-  * shotType может быть широким (wide/medium/other non-lipsync framing)
-  * timingReason должен объяснять музыкальную причину выбора границ
-
-JSON СХЕМА:
-{{
-  "audioDuration": number,
-  "scenes": [
-    {{
-      "id": "s01",
-      "start": number,
-      "end": number,
-      "why": "коротко почему тут переход",
-      "audioType": "instrumental | song_with_vocals | speech | mixed",
-      "sceneType": "visual_rhythm | vocal | lipSync",
-      "hasVocals": true,
-      "isLipSync": false,
-      "lyricFragment": "короткий фрагмент вокальной фразы или пусто",
-      "timingReason": "почему выбраны именно такие t0/t1",
-      "beatAnchor": "например: downbeat_1 | snare_2_4 | vocal_phrase_start",
-      "performanceType": "cinematic_visual | singing_performance | narrative_vocal",
-      "shotType": "wide | medium | closeup | mouth_closeup",
-      "productView": "hero | wide | side | detail | interaction | macro",
-      "sceneText": "что происходит в кадре",
-      "imagePrompt": "промт для генерации картинки",
-      "videoPrompt": "промт движения камеры/анимации (3–5 сек)"
-    }}
-  ]
-}}
-
-ВАЖНО:
-- start/end в секундах, с 1–2 знаками после запятой.
-- end строго > start.
-- Последняя сцена end = {duration:.1f}.
-- Если isLipSync=true: sceneType="lipSync", hasVocals=true, performanceType="singing_performance",
-  shotType из medium|closeup|mouth_closeup, и sceneText/videoPrompt про singing performance.
-- Если productMode=true: можно указывать productView для сцены (hero|wide|side|detail|interaction|macro).
-- Если productMode=false: не добавляй поле productView.
-"""
-
-    if scenario_key == "clip":
-        rules += """
-
-КОНЦЕПЦИЯ РЕЖИМА "CLIP":
-Это музыкальный клип, состоящий из трёх типов сцен:
-1) PERFORMANCE (lipSync)
-2) RHYTHM MONTAGE
-3) ATMOSPHERIC / STORY INSERTS
-Planner должен смешивать их.
-
-ЛОГИКА РАСПРЕДЕЛЕНИЯ СЦЕН ДЛЯ CLIP:
-- LipSync дорогой: используй экономно и только как короткий performance-акцент.
-- 10–25% сцен: lipSync / performance
-- 40–60% сцен: rhythm montage
-- 15–30% сцен: atmospheric / narrative inserts
-- LipSync сцены НЕ должны идти подряд.
-
-ВЫБОР LIPSYNC СЦЕН:
-LipSync сцены добавляй только если одновременно соблюдено:
-- слышен явный вокал;
-- есть цельная вокальная фраза;
-- это эмоционально сильный момент.
-- Не превращай весь припев в одну длинную lipSync-сцену.
-- Выбирай только лучший фрагмент припева / hook.
-- Предпочтительная длительность lipSync: 3–5 сек.
-- Допустимо 2–3 сек для очень сильной короткой фразы.
-- Максимум обычно 5–6 сек.
-Приоритетные точки:
-- начало припева;
-- главная строка;
-- эмоциональный пик;
-- переход в припев.
-
-Для lipSync сцены обязательно:
-- sceneType = "lipSync"
-- hasVocals = true
-- isLipSync = true
-- performanceType = "singing_performance"
-- shotType = medium | closeup | mouth_closeup
-
-RHYTHM MONTAGE СЦЕНЫ:
-- sceneType = "visual_rhythm"
-- Границы должны совпадать с сильными долями, дропами и изменением энергии трека.
-- Используй beatAnchor только из:
-  downbeat | snare | drop | phrase_transition
-
-ATMOSPHERIC / STORY INSERTS:
-- sceneType = "vocal" или "visual_rhythm"
-- Используй их, чтобы разбавить performance, показать эмоцию, добавить атмосферу и действие персонажа.
-
-ОГРАНИЧЕНИЯ РЕЖИМА CLIP:
-- Для клипа до 30 секунд: максимум 1 lipSync сцена.
-- Для клипа 30–60 секунд: максимум 2 lipSync сцены, редко 3.
-- LipSync сцены не должны идти подряд.
-- Остальную часть припева показывай через rhythm montage / atmosphere / story inserts.
-- Clip mode должен быть музыкальным клипом, а не karaoke и не talking head.
-- Баланс для clip mode: немного lipSync, немного performance, много клипового монтажа, немного истории/атмосферы.
-- Даже короткий clip должен ощущаться как плотный музыкальный монтаж с достаточным количеством смен сцен.
-- Для ~30 секунд обычно целись в 7–8 сцен, если аудио не даёт очень сильного основания сделать меньше.
-- Избегай плана из 2–3 крупных сцен для 30-секундного музыкального клипа.
-
-РАБОТА С ФЛАГОМ wantLipSync:
-- Если wantLipSync=false:
-  * Строй клип в первую очередь по beat/rhythm/energy/transitions.
-  * Текст (если есть) используй как слабую смысловую подсказку, не как жёсткий диктант.
-  * Это монтажный музыкальный клип.
-  * Во всех сценах isLipSync=false.
-
-- Если wantLipSync=true:
-  * Только performance/lipSync сцены строй по полным vocal phrases.
-  * Нельзя обрывать фразу, слово или предложение в lipSync-сцене.
-  * Остальные сцены между lipSync-сценами строй по beat/energy/montage/atmosphere/story inserts.
-  * Клип должен оставаться музыкальным клипом, а не сплошным talking head.
-"""
-
-    ref_hints = []
-    if style_ref:
-        ref_hints.append("Есть styleRef (глобальный стиль, наивысший приоритет).")
-    if character_refs:
-        ref_hints.append(f"Есть characterRefs: {len(character_refs)} шт (identity lock).")
-    if location_refs:
-        ref_hints.append(f"Есть locationRefs: {len(location_refs)} шт (world lock).")
-    if props_refs:
-        ref_hints.append(f"Есть propsRefs: {len(props_refs)} шт (props lock).")
-
-    extra = ""
-    if ref_hints:
-        extra += "\n" + " ".join(ref_hints)
-    extra += "\nПРИОРИТЕТ ИСТОЧНИКОВ (строгий): STYLE > CHARACTER > LOCATION > PROPS > TEXT > AUDIO."
-    if style_ref:
-        extra += f"\nstyleRef: {style_ref[:500]}"
-    if character_refs:
-        extra += "\ncharacterRefs:\n" + "\n".join(f"- {u[:500]}" for u in character_refs)
-    if location_refs:
-        extra += "\nlocationRefs:\n" + "\n".join(f"- {u[:500]}" for u in location_refs)
-    if props_refs:
-        extra += "\npropsRefs:\n" + "\n".join(f"- {u[:500]}" for u in props_refs)
-
-    extra += "\nВНУТРЕННЯЯ СЕМАНТИКА PLANNER (используй как канон):"
-    extra += f"\n- textType: {', '.join(planning_semantics.get('textType') or []) or 'none'}"
-    extra += f"\n- audioType: {planning_semantics.get('audioType')}"
-    extra += f"\n- storySource: {planning_semantics.get('storySource')}"
-    extra += f"\n- timingSource: {planning_semantics.get('timingSource')}"
-    extra += f"\n- speechSource: {planning_semantics.get('speechSource')}"
-    extra += f"\n- audioRole: {', '.join(planning_semantics.get('audioRole') or [])}"
-    extra += f"\n- propsRole: {planning_semantics.get('propsRole')}"
-    extra += f"\n- productMode: {planning_semantics.get('productMode')}"
-    extra += f"\n- modeInterpretation: {planning_semantics.get('modeInterpretation')}"
-    extra += "\nЕсли audioType=song_with_vocals: НЕ превращай TEXT в разговорный диалог персонажа."
-    extra += "\nLip sync в таком случае только singing/performance, либо полностью визуальный performance без разговорной речи."
-    if planning_semantics.get('styleApplication') == 'historical_world_modern_product':
-        extra += "\nКонфликт style/product: историческая атмосфера (персонаж/интерьер/свет), но товар должен остаться современным и узнаваемым."
-    if product_distribution_enabled:
-        extra += "\nPRODUCT REFERENCE RULES:"
-        extra += "\npropsRefs represent ONE product photographed from multiple angles."
-        extra += "\nDo NOT interpret propsRefs as different objects."
-        extra += "\nUse them as:"
-        extra += "\n- wide product shot"
-        extra += "\n- side angle"
-        extra += "\n- close-up detail"
-        extra += "\n- interaction with product"
-        extra += "\n- hero product shot"
-        extra += "\nDistribute product references across scenes to create visual variation."
-        extra += "\nUse different angles for different scenes."
-        extra += "\nAvoid repeating identical framing unless required by rhythm."
-        extra += "\nPRODUCT CONTINUITY RULE:"
-        extra += "\nThe product must remain present in most scenes of the clip."
-        extra += "\nDo not create scenes that completely ignore the product unless it is a very short atmospheric transition."
-        extra += "\nThe product should appear as:"
-        extra += "\n- hero product"
-        extra += "\n- detail view"
-        extra += "\n- interaction with character"
-        extra += "\n- product on table"
-        extra += "\n- product demonstration"
-        extra += "\nAvoid scenes that replace the product with unrelated objects."
-
-    if text:
-        extra += "\nТЕКСТ/СМЫСЛ (может быть история или слова песни):\n" + text[:4000]
-    if audio_type_hint:
-        extra += f"\nПодсказка о типе аудио от UI: {audio_type_hint}"
-    if text_type_hint:
-        extra += f"\nПодсказка о типе текста от UI: {text_type_hint}"
-    extra += f"\nФлаг wantLipSync от UI: {want_lipsync}"
-    if text_type_hint == "lyrics" or audio_type_hint == "song" or want_lipsync:
-        extra += "\nПРИОРИТЕТ: сначала найди и нарежь вокальные фразы, затем корректируй по ритму/биту."
-    if audio_analysis:
-        extra += _format_audio_analysis_summary(audio_analysis)
-        extra += "\nIf audio analysis is provided:"
-        extra += "\nuse vocal phrase boundaries, downbeats, and energy peaks as primary timing anchors for scene segmentation."
-        extra += "\nDo not invent arbitrary 0-4 / 4-8 / 8-30 timing if audio anchors exist."
-        extra += "\nFor clip mode: prefer variable scene lengths based on vocal phrases, downbeats, energy peaks, and section transitions."
-        if want_lipsync and (audio_analysis.get("vocalPhrases") or []):
-            extra += "\nIf wantLipSync=true and vocal phrases are available, lipSync scenes must align to full vocal phrases from audio analysis."
-            extra += "\nDo not cut lipSync inside a phrase."
-
-    parts = [{"text": rules + extra}]
-
+    parts = [
+        {"text": system_rules},
+        {"text": "Input payload:\n" + json.dumps(user_input, ensure_ascii=False)},
+    ]
     if audio_bytes:
-        b64 = base64.b64encode(audio_bytes).decode("ascii")
-        parts.append({"inlineData": {"mimeType": audio_mime, "data": b64}})
+        parts.append({"inlineData": {"mimeType": audio_mime, "data": base64.b64encode(audio_bytes).decode("ascii")}})
 
     generation_config = {
-        "temperature": 0.25,
-        "topP": 0.9,
-        "maxOutputTokens": 4096,
+        "temperature": 0.2,
+        "responseMimeType": "application/json",
     }
 
-    body = {
-        "contents": [{"role": "user", "parts": parts}],
-        "generationConfig": generation_config,
-    }
-
-    model_used = settings.GEMINI_VISION_MODEL if audio_bytes else settings.GEMINI_TEXT_MODEL
-    fallback_used = False
-
-    # Call Gemini with safe model fallback on unsupported-model errors
-    resp = post_generate_content(settings.GEMINI_API_KEY, model_used, body, timeout=120)
-    combined_error = _combined_error_text(resp if isinstance(resp, dict) else None)
-    first_model = model_used
-    first_error = combined_error[:1500] if combined_error else None
-    first_was_unsupported = _is_model_unsupported_error(first_error or "")
-    if first_was_unsupported:
-        model_used = _pick_fallback_model(model_used)
-        fallback_used = True
-        resp = post_generate_content(settings.GEMINI_API_KEY, model_used, body, timeout=120)
-        combined_error = _combined_error_text(resp if isinstance(resp, dict) else None)
-
-    error_hint = (combined_error or "")[:1500] if combined_error else None
-
-    # If http error BUT body may contain JSON in text -> try parse it before fallback
-    if isinstance(resp, dict) and resp.get("__http_error__"):
-        raw_text = resp.get("text") or ""
-        parsed_http_validation = empty_validation_debug.copy()
-        j = _parse_json_from_text(raw_text)
-        if isinstance(j, dict) and isinstance(j.get("scenes"), list):
-            scenes = _normalize_scenes(duration, j.get("scenes") or [])
-            validation = _validate_planner_scenes_quality(duration, scenario_key, scenes)
-            parsed_http_validation = validation
-            if scenes:
-                return {
-                    "ok": True,
-                    "engine": "gemini_partial",
-                    "audioDuration": duration,
-                    "scenes": scenes,
-                    "plannerDebug": {**planner_debug_base, "validation": validation},
-                    "modelUsed": model_used,
-                    "fallbackUsed": fallback_used,
-                    "hint": "http_error_but_parsed_json" if audio_bytes else "plan_built_without_audio_bytes",
-                }
-        scenes = _fallback_plan(duration, text)
-        return {
-            "ok": True,
-            "engine": "fallback",
-            "audioDuration": duration,
-            "scenes": scenes,
-            "plannerDebug": {**planner_debug_base, "validation": parsed_http_validation},
-            "modelUsed": model_used,
-            "fallbackUsed": fallback_used,
-            "hint": "plan_built_without_audio_bytes" if not audio_bytes else (error_hint or raw_text[:1500]),
-            "error": {
-                "code": "MODEL_UNSUPPORTED" if first_was_unsupported else "GENERATION_FAILED",
-                "hint": error_hint or raw_text[:1500],
-                "modelUsed": model_used,
-                "fallbackUsed": fallback_used,
-                "firstAttempt": {
-                    "modelUsed": first_model,
-                    "hint": first_error,
-                } if fallback_used else None,
-            },
-        }
-
-    # Normal parse
-    text_out = _extract_gemini_text(resp if isinstance(resp, dict) else {})
-    j = _parse_json_from_text(text_out)
-    if (not isinstance(j, dict) or "scenes" not in j) and '"scenes"' in (text_out or "") and "{" in (text_out or ""):
-        retry_parts = [
-            {"text": rules + extra + "\n\nReturn ONLY valid JSON, no markdown, no code fences, ensure all braces closed."}
-        ]
-        if audio_bytes:
-            b64 = base64.b64encode(audio_bytes).decode("ascii")
-            retry_parts.append({"inlineData": {"mimeType": audio_mime, "data": b64}})
-        retry_body = {
-            "contents": [{"role": "user", "parts": retry_parts}],
+    def _call_gemini(request_parts, model_name: str):
+        body = {
+            "contents": [{"role": "user", "parts": request_parts}],
             "generationConfig": generation_config,
         }
-        retry_resp = post_generate_content(settings.GEMINI_API_KEY, model_used, retry_body, timeout=120)
-        retry_text = _extract_gemini_text(retry_resp if isinstance(retry_resp, dict) else {})
-        j = _parse_json_from_text(retry_text)
-        if isinstance(retry_resp, dict):
-            retry_error_hint = _combined_error_text(retry_resp)
-            if retry_error_hint:
-                error_hint = (retry_error_hint or "")[:1500]
-        text_out = retry_text or text_out
+        resp = post_generate_content(api_key, model_name, body, timeout=120)
+        raw = _extract_gemini_text(resp if isinstance(resp, dict) else {})
+        parsed = _parse_json_from_text(raw)
+        return resp, raw, parsed
 
-    if not isinstance(j, dict) or "scenes" not in j:
-        scenes = _fallback_plan(duration, text)
-        hint = (text_out or error_hint or "")[:1500] or None
-        return {
-            "ok": True,
-            "engine": "fallback",
-            "audioDuration": duration,
-            "scenes": scenes,
-            "plannerDebug": {**planner_debug_base, "validation": empty_validation_debug},
-            "modelUsed": model_used,
-            "fallbackUsed": fallback_used,
-            "hint": "plan_built_without_audio_bytes" if not audio_bytes else hint,
-            "error": {
-                "code": "MODEL_UNSUPPORTED" if first_was_unsupported else "GENERATION_FAILED",
-                "hint": hint,
+    def _validate_plan(plan: dict) -> tuple[bool, str | None]:
+        if not isinstance(plan, dict):
+            return False, "response_not_json_object"
+        track = plan.get("track")
+        scenes = plan.get("scenes")
+        if not isinstance(track, dict):
+            return False, "track_missing"
+        if not isinstance(scenes, list) or not scenes:
+            return False, "scenes_missing_or_empty"
+        for idx, scene in enumerate(scenes):
+            if not isinstance(scene, dict):
+                return False, f"scene_{idx}_not_object"
+            try:
+                start = float(scene.get("start"))
+                end = float(scene.get("end"))
+            except Exception:
+                return False, f"scene_{idx}_invalid_time"
+            if not (start < end):
+                return False, f"scene_{idx}_start_not_less_than_end"
+            visual_prompt = str(scene.get("visualPrompt") or "").strip()
+            visual_desc = str(scene.get("visualDescription") or "").strip()
+            if not (visual_prompt or visual_desc):
+                return False, f"scene_{idx}_visual_empty"
+        return True, None
+
+    resp, raw_text, parsed = _call_gemini(parts, model_used)
+    err_text = _combined_error_text(resp if isinstance(resp, dict) else {})
+    if _is_model_unsupported_error(err_text):
+        model_used = _pick_fallback_model(model_used)
+        resp, raw_text, parsed = _call_gemini(parts, model_used)
+
+    is_valid, reason = _validate_plan(parsed)
+    if not is_valid:
+        retry_parts = parts + [{"text": f"Previous output invalid ({reason}). Return ONLY one valid JSON object matching required schema."}]
+        resp, raw_text, parsed = _call_gemini(retry_parts, model_used)
+        is_valid, reason = _validate_plan(parsed)
+
+    if not is_valid:
+        err = _combined_error_text(resp if isinstance(resp, dict) else {}) or raw_text or reason or "invalid_gemini_json"
+        return JSONResponse(
+            status_code=502,
+            content={
+                "ok": False,
+                "code": "CLIP_PLAN_INVALID_JSON",
+                "detail": str(err)[:1200],
                 "modelUsed": model_used,
-                "fallbackUsed": fallback_used,
-                "firstAttempt": {
-                    "modelUsed": first_model,
-                    "hint": first_error,
-                } if fallback_used else None,
+                "hint": reason,
             },
-        }
+        )
 
-    scenes = _normalize_scenes(duration, j.get("scenes") or [])
-    validation = _validate_planner_scenes_quality(duration, scenario_key, scenes)
-    if not scenes:
-        validation["rejectedReason"] = validation.get("rejectedReason") or "empty_scenes"
-        scenes = _fallback_plan(duration, text)
-        return {
-            "ok": True,
-            "engine": "fallback",
-            "audioDuration": duration,
-            "scenes": scenes,
-            "plannerDebug": {**planner_debug_base, "validation": validation},
-            "modelUsed": model_used,
-            "fallbackUsed": fallback_used,
-            "hint": "plan_built_without_audio_bytes" if not audio_bytes else "empty_scenes",
-            "error": {
-                "code": "GENERATION_FAILED",
-                "hint": "empty_scenes",
-                "modelUsed": model_used,
-                "fallbackUsed": fallback_used,
-            },
-        }
+    plan = parsed
+    track = plan.get("track") or {}
+    audio_duration = float(track.get("durationSec") or duration or 30.0)
+    scenes = plan.get("scenes") or []
 
-    is_clip_mode = (scenario_key or "").strip().lower() == "clip"
-    should_repair_for_weak_clip = bool(is_clip_mode and validation.get("weakClipPlan"))
-
-    if validation.get("rejectedReason") or should_repair_for_weak_clip:
-        if is_clip_mode:
-            min_scenes = _minimum_scene_count_for_repair(duration)
-            repair_instruction = f"""
-
-REPAIR MODE: предыдущий storyboard требует доработки ({validation.get('rejectedReason') or 'weak_clip_plan'}).
-Исправь план и верни новый валидный JSON.
-ЖЁСТКИЕ ТРЕБОВАНИЯ:
-- Минимум {min_scenes} сцен для этой длительности.
-- Не оставляй сцены полностью пустыми по core fields (sceneText/imagePrompt/videoPrompt).
-- Старайся сделать sceneText, imagePrompt и videoPrompt содержательными в каждой сцене.
-- Каждая сцена должна быть конкретной и полезной для storyboard.
-- Верни только валидный JSON на русском языке, без markdown.
-"""
-            repair_parts = [{"text": rules + extra + repair_instruction}]
-            if audio_bytes:
-                b64 = base64.b64encode(audio_bytes).decode("ascii")
-                repair_parts.append({"inlineData": {"mimeType": audio_mime, "data": b64}})
-            repair_body = {
-                "contents": [{"role": "user", "parts": repair_parts}],
-                "generationConfig": generation_config,
-            }
-            repair_resp = post_generate_content(settings.GEMINI_API_KEY, model_used, repair_body, timeout=120)
-            repair_text = _extract_gemini_text(repair_resp if isinstance(repair_resp, dict) else {})
-            repair_json = _parse_json_from_text(repair_text)
-            repair_scenes = _normalize_scenes(duration, (repair_json or {}).get("scenes") or []) if isinstance(repair_json, dict) else []
-            repair_validation = _validate_planner_scenes_quality(duration, scenario_key, repair_scenes)
-            repair_validation["repairRetryUsed"] = True
-            if should_repair_for_weak_clip and len(repair_scenes) == 1:
-                repair_validation["warnings"] = list(repair_validation.get("warnings") or []) + ["weak_clip_plan_single_scene"]
-
-            if repair_scenes and not repair_validation.get("rejectedReason") and not (should_repair_for_weak_clip and len(repair_scenes) == 1):
-                return {
-                    "ok": True,
-                    "engine": "gemini",
-                    "audioDuration": duration,
-                    "scenes": repair_scenes,
-                    "plannerDebug": {**planner_debug_base, "validation": repair_validation},
-                    "modelUsed": model_used,
-                    "fallbackUsed": fallback_used,
-                    "hint": None if audio_bytes else "plan_built_without_audio_bytes",
-                }
-
-            if scenes:
-                validation["repairRetryUsed"] = True
-                if should_repair_for_weak_clip and len(repair_scenes) == 1:
-                    validation["warnings"] = list(validation.get("warnings") or []) + ["weak_clip_plan_single_scene"]
-                return {
-                    "ok": True,
-                    "engine": "gemini",
-                    "audioDuration": duration,
-                    "scenes": scenes,
-                    "plannerDebug": {**planner_debug_base, "validation": validation},
-                    "modelUsed": model_used,
-                    "fallbackUsed": fallback_used,
-                    "hint": None if audio_bytes else "plan_built_without_audio_bytes",
-                }
-
-            rejected_reason = repair_validation.get("rejectedReason") or "planner_output_rejected_as_low_quality"
-            fallback_scenes = _fallback_plan(duration, text)
-            return {
-                "ok": True,
-                "engine": "fallback",
-                "audioDuration": duration,
-                "scenes": fallback_scenes,
-                "plannerDebug": {**planner_debug_base, "validation": repair_validation},
-                "modelUsed": model_used,
-                "fallbackUsed": fallback_used,
-                "hint": "plan_built_without_audio_bytes" if not audio_bytes else f"planner_output_rejected_as_low_quality:{rejected_reason}",
-                "error": {
-                    "code": "GENERATION_FAILED",
-                    "hint": f"planner_output_rejected_as_low_quality:{rejected_reason}",
-                    "modelUsed": model_used,
-                    "fallbackUsed": fallback_used,
-                },
-            }
-
-        # Non-clip scenarios: keep validation in plannerDebug but avoid strict fallback.
-        return {
-            "ok": True,
-            "engine": "gemini",
-            "audioDuration": duration,
-            "scenes": scenes,
-            "plannerDebug": {**planner_debug_base, "validation": validation},
-            "modelUsed": model_used,
-            "fallbackUsed": fallback_used,
-            "hint": None if audio_bytes else "plan_built_without_audio_bytes",
-        }
+    normalized_scenes = []
+    for idx, s in enumerate(scenes):
+        start = float(s.get("start"))
+        end = float(s.get("end"))
+        visual_prompt = str(s.get("visualPrompt") or "").strip()
+        visual_desc = str(s.get("visualDescription") or "").strip()
+        lip_sync_text = str(s.get("lipSyncText") or "").strip()
+        scene_type = str(s.get("sceneType") or "visual_rhythm").strip() or "visual_rhythm"
+        normalized_scenes.append({
+            **s,
+            "id": str(s.get("id") or f"scene_{idx + 1:03d}"),
+            "start": start,
+            "end": end,
+            "prompt": visual_prompt or visual_desc,
+            "sceneText": visual_desc,
+            "imagePrompt": visual_prompt,
+            "why": str(s.get("reason") or "").strip(),
+            "sceneType": scene_type,
+            "isLipSync": bool(lip_sync_text),
+            "lipSyncText": lip_sync_text,
+        })
 
     return {
         "ok": True,
         "engine": "gemini",
-        "audioDuration": duration,
-        "scenes": scenes,
-        "plannerDebug": {**planner_debug_base, "validation": validation},
         "modelUsed": model_used,
-        "fallbackUsed": fallback_used,
+        "fallbackUsed": False,
         "hint": None if audio_bytes else "plan_built_without_audio_bytes",
+        "audioDuration": audio_duration,
+        "track": track,
+        "sections": plan.get("sections") if isinstance(plan.get("sections"), list) else [],
+        "vocalPhrases": plan.get("vocalPhrases") if isinstance(plan.get("vocalPhrases"), list) else [],
+        "energyEvents": plan.get("energyEvents") if isinstance(plan.get("energyEvents"), list) else [],
+        "scenes": normalized_scenes,
+        "plannerDebug": {
+            "audio": audio_debug,
+            "validation": {
+                "scenario": mode,
+                "sceneCount": len(normalized_scenes),
+                "rejectedReason": None,
+                "repairRetryUsed": False,
+                "warnings": [],
+            },
+        },
     }
 
 
