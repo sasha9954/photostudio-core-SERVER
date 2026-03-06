@@ -16,6 +16,7 @@ from PIL import Image, ImageDraw
 
 from app.core.config import settings
 from app.core.static_paths import ASSETS_DIR, ensure_static_dirs, asset_url
+from app.engine.audio_analyzer import analyze_audio
 from app.engine.gemini_rest import post_generate_content
 
 router = APIRouter()
@@ -445,6 +446,43 @@ def _load_audio_for_planner(audio_url: str | None) -> tuple[float, bytes | None,
     return duration, None, audio_mime, debug
 
 
+def _format_audio_analysis_summary(audio_analysis: dict) -> str:
+    duration = float(audio_analysis.get("duration") or 0.0)
+    bpm = float(audio_analysis.get("bpm") or 0.0)
+    downbeats = audio_analysis.get("downbeats") or []
+    vocal_phrases = audio_analysis.get("vocalPhrases") or []
+    energy_peaks = audio_analysis.get("energyPeaks") or []
+    sections = audio_analysis.get("sections") or []
+
+    section_lines = []
+    for sec in sections[:6]:
+        sec_type = str(sec.get("type") or "section")
+        sec_start = float(sec.get("start") or 0.0)
+        sec_end = float(sec.get("end") or 0.0)
+        section_lines.append(f"{sec_type}({sec_start:.2f}-{sec_end:.2f})")
+
+    phrase_lines = []
+    for phr in vocal_phrases[:6]:
+        p0 = float(phr.get("start") or 0.0)
+        p1 = float(phr.get("end") or 0.0)
+        phrase_lines.append(f"{p0:.2f}-{p1:.2f}")
+
+    peak_lines = [f"{float(t):.2f}" for t in energy_peaks[:8]]
+
+    summary = "\nAUDIO ANALYSIS:"
+    summary += f"\nduration={duration:.2f}"
+    summary += f"\nbpm={bpm:.0f}" if bpm > 0 else "\nbpm=0"
+    summary += f"\ndownbeats={len(downbeats)}"
+    summary += f"\nvocalPhrases={len(vocal_phrases)}"
+    summary += f"\nenergyPeaks={len(energy_peaks)}"
+    summary += "\nsections=" + (", ".join(section_lines) if section_lines else "none")
+    if phrase_lines:
+        summary += "\nvocalPhrases(first6):\n" + "\n".join(phrase_lines)
+    if peak_lines:
+        summary += "\nenergyPeaks(first8):\n" + "\n".join(peak_lines)
+    return summary
+
+
 def _fallback_plan(duration: float, text: str | None):
     scene_len = 5.0
     scene_count = max(1, math.ceil(duration / scene_len))
@@ -748,6 +786,19 @@ def clip_plan(payload: BrainIn):
     text = (payload.text or "").strip()
 
     duration, audio_bytes, audio_mime, audio_debug = _load_audio_for_planner(payload.audioUrl)
+    audio_analysis = None
+    audio_analysis_hint = "audio_url_missing"
+    if payload.audioUrl:
+        analysis_path = _resolve_audio_asset_path(payload.audioUrl)
+        if analysis_path and os.path.isfile(analysis_path):
+            try:
+                audio_analysis = analyze_audio(analysis_path)
+                audio_analysis_hint = "audio_analysis_loaded_from_local_asset"
+            except Exception as e:
+                audio_analysis = None
+                audio_analysis_hint = f"audio_analysis_failed:{str(e)[:200]}"
+        else:
+            audio_analysis_hint = "audio_analysis_path_not_resolved"
     empty_validation_debug = {
         "scenario": "clip",
         "sceneCount": 0,
@@ -812,6 +863,8 @@ def clip_plan(payload: BrainIn):
 
     planner_debug_base = {
         "audio": audio_debug,
+        "audioAnalysis": audio_analysis,
+        "audioAnalysisHint": audio_analysis_hint,
         "planningSemantics": planning_semantics,
         "productDistributionEnabled": product_distribution_enabled,
     }
@@ -1134,6 +1187,15 @@ ATMOSPHERIC / STORY INSERTS:
     extra += f"\nФлаг wantLipSync от UI: {want_lipsync}"
     if text_type_hint == "lyrics" or audio_type_hint == "song" or want_lipsync:
         extra += "\nПРИОРИТЕТ: сначала найди и нарежь вокальные фразы, затем корректируй по ритму/биту."
+    if audio_analysis:
+        extra += _format_audio_analysis_summary(audio_analysis)
+        extra += "\nIf audio analysis is provided:"
+        extra += "\nuse vocal phrase boundaries, downbeats, and energy peaks as primary timing anchors for scene segmentation."
+        extra += "\nDo not invent arbitrary 0-4 / 4-8 / 8-30 timing if audio anchors exist."
+        extra += "\nFor clip mode: prefer variable scene lengths based on vocal phrases, downbeats, energy peaks, and section transitions."
+        if want_lipsync and (audio_analysis.get("vocalPhrases") or []):
+            extra += "\nIf wantLipSync=true and vocal phrases are available, lipSync scenes must align to full vocal phrases from audio analysis."
+            extra += "\nDo not cut lipSync inside a phrase."
 
     parts = [{"text": rules + extra}]
 
