@@ -270,20 +270,6 @@ function TextNode({ id, data }) {
     <>
       <Handle type="source" position={Position.Right} id="text" className="clipSB_handle" style={{ background: portColor("text"), width: 12, height: 12, border: "2px solid rgba(255,255,255,0.35)" }} />
       <NodeShell title="TEXT" onClose={() => data?.onRemoveNode?.(id)} icon={<span aria-hidden>📄</span>} className="clipSB_nodeText">
-        <div className="clipSB_row" style={{ marginBottom: 8 }}>
-          <div className="clipSB_rowLabel" style={{ fontSize: 12, opacity: 0.85 }}>Тип</div>
-          <select
-            className="clipSB_select"
-            style={{ width: "100%", marginTop: 6 }}
-            value={data?.textType || "story"}
-            onChange={(e) => data?.onTextType?.(id, e.target.value)}
-          >
-            <option value="story">история / сюжет</option>
-            <option value="lyrics">текст песни (lyrics)</option>
-            <option value="notes">заметки</option>
-          </select>
-        </div>
-
         <div className="clipSB_textWrap">
           <textarea
             className="clipSB_textarea"
@@ -351,9 +337,9 @@ function BrainNode({ id, data }) {
             <div className="clipSB_hint" style={{ marginBottom: 6 }}>
               Сценарий
             </div>
-            <div className="clipSB_small" style={{ padding: "10px 12px", borderRadius: 10, background: "rgba(255,255,255,0.04)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.08)" }}>
-              Сценарий: <b>клип</b>
-            </div>
+            <select className="clipSB_select" value="clip" disabled>
+              <option value="clip">клип</option>
+            </select>
           </div>
 
           <div>
@@ -672,7 +658,7 @@ useEffect(() => {
         id: "text",
         type: "textNode",
         position: { x: 120, y: 300 },
-        data: { textValue: "", textType: "story" },
+        data: { textValue: "" },
       },
       {
         id: "brain",
@@ -994,9 +980,6 @@ const scenarioSelectedAudioSliceUrl = useMemo(() => resolveAssetUrl(scenarioSele
             ...base,
             data: {
               ...base.data,
-              onTextType: (nodeId, value) => {
-                setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, textType: value } } : x)));
-              },
               onChange: (nodeId, value) => {
                 setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, textValue: value } } : x)));
               },
@@ -1085,7 +1068,6 @@ onParse: async (nodeId) => {
 
     const audioUrl = audioNode?.type === "audioNode" ? (audioNode.data?.audioUrl || "") : "";
     const audioType = wantLipSync ? "song" : "bg"; // clip-only auto mapping from wantLipSync
-    const textType = textNode?.type === "textNode" ? (textNode.data?.textType || "story") : null; // story | lyrics | notes
     const textValue = textNode?.type === "textNode" ? String(textNode.data?.textValue || "") : "";
 
     const payload = {
@@ -1100,7 +1082,6 @@ onParse: async (nodeId) => {
       refLocation: refLocation || null,
       refStyle: refStyle || null,
       audioType,
-      textType,
     };
 
     const res = await fetch(`${API_BASE}/api/clip/plan`, {
@@ -1367,7 +1348,7 @@ const hydrate = useCallback(() => {
     if (type === "audio") {
       node = { id, type: "audioNode", position: { x: centerX + jitterX, y: centerY + jitterY }, data: { audioUrl: "", audioName: "", uploading: false } };
     } else if (type === "text") {
-      node = { id, type: "textNode", position: { x: centerX + jitterX, y: centerY + jitterY }, data: { textValue: "", textType: "story" } };
+      node = { id, type: "textNode", position: { x: centerX + jitterX, y: centerY + jitterY }, data: { textValue: "" } };
     } else if (type === "brain") {
       node = { id, type: "brainNode", position: { x: centerX + jitterX, y: centerY + jitterY }, data: { mode: "clip", scenarioKey: "clip", shootKey: "cinema", styleKey: "realism", freezeStyle: false, clipSec: 30 } };
     } else if (type === "ref_character") {
