@@ -1447,10 +1447,7 @@ def clip_image(payload: ClipImageIn):
         }
 
     try:
-        if has_visual_refs_attached:
-            model = getattr(settings, "GEMINI_VISION_MODEL", None) or settings.GEMINI_IMAGE_MODEL or "gemini-2.5-flash-image-preview"
-        else:
-            model = settings.GEMINI_IMAGE_MODEL or "gemini-2.5-flash-image-preview"
+        model = settings.GEMINI_IMAGE_MODEL or "gemini-2.5-flash-image-preview"
 
         system_prompt = (
             "Generate ONE still image for this scene. "
