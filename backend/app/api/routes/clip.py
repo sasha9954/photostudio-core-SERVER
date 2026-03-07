@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import requests
 import tempfile
 import subprocess
@@ -29,6 +29,15 @@ class ClipImageIn(BaseModel):
     style: str | None = "default"
     width: int | None = 1024
     height: int | None = 1024
+    refs: "ClipImageRefsIn | None" = None
+    sceneText: str | None = None
+
+
+class ClipImageRefsIn(BaseModel):
+    character: list[str] = Field(default_factory=list)
+    location: list[str] = Field(default_factory=list)
+    style: list[str] = Field(default_factory=list)
+    props: list[str] = Field(default_factory=list)
 
 
 class AudioSliceIn(BaseModel):
@@ -209,6 +218,61 @@ def _decode_gemini_image(resp: dict) -> tuple[bytes, str] | None:
     except Exception:
         return None
     return None
+
+
+def _normalize_ref_list(items, max_items: int = 8) -> list[str]:
+    out = []
+    if not items:
+        return out
+    for it in items:
+        if isinstance(it, str):
+            url = str(it).strip()
+        elif isinstance(it, dict):
+            url = str(it.get("url") or "").strip()
+        else:
+            url = str(getattr(it, "url", "") or "").strip()
+        if url:
+            out.append(url)
+    return out[:max_items]
+
+
+def _guess_image_mime(url: str, headers: dict, raw: bytes) -> str:
+    header_mime = str((headers or {}).get("Content-Type") or "").split(";")[0].strip().lower()
+    if header_mime.startswith("image/"):
+        return header_mime
+
+    guessed, _ = mimetypes.guess_type(url or "")
+    guessed = (guessed or "").lower()
+    if guessed.startswith("image/"):
+        return guessed
+
+    try:
+        fmt = (Image.open(io.BytesIO(raw)).format or "").lower()
+    except Exception:
+        fmt = ""
+    if fmt == "jpeg":
+        return "image/jpeg"
+    if fmt:
+        return f"image/{fmt}"
+    return "image/jpeg"
+
+
+def _load_reference_image_inline(url: str) -> dict | None:
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        raw = r.content
+        if not raw:
+            return None
+        mime = _guess_image_mime(url, dict(r.headers), raw)
+        return {
+            "inlineData": {
+                "mimeType": mime,
+                "data": base64.b64encode(raw).decode("ascii"),
+            }
+        }
+    except Exception:
+        return None
 
 
 class RefUrlItem(BaseModel):
@@ -892,57 +956,7 @@ def clip_plan(payload: BrainIn):
 
     duration, audio_bytes, audio_mime, audio_debug = _load_audio_for_planner(payload.audioUrl)
 
-    def _normalize_ref_list(items, max_items: int = 8):
-        out = []
-        if not items:
-            return out
-        for it in items:
-            if isinstance(it, str):
-                url = str(it).strip()
-            elif isinstance(it, dict):
-                url = str(it.get("url") or "").strip()
-            else:
-                url = str(getattr(it, "url", "") or "").strip()
-            if url:
-                out.append(url)
-        return out[:max_items]
 
-    def _guess_image_mime(url: str, headers: dict, raw: bytes) -> str:
-        header_mime = str((headers or {}).get("Content-Type") or "").split(";")[0].strip().lower()
-        if header_mime.startswith("image/"):
-            return header_mime
-
-        guessed, _ = mimetypes.guess_type(url or "")
-        guessed = (guessed or "").lower()
-        if guessed.startswith("image/"):
-            return guessed
-
-        try:
-            fmt = (Image.open(io.BytesIO(raw)).format or "").lower()
-        except Exception:
-            fmt = ""
-        if fmt == "jpeg":
-            return "image/jpeg"
-        if fmt:
-            return f"image/{fmt}"
-        return "image/jpeg"
-
-    def _load_reference_image_inline(url: str) -> dict | None:
-        try:
-            r = requests.get(url, timeout=10)
-            r.raise_for_status()
-            raw = r.content
-            if not raw:
-                return None
-            mime = _guess_image_mime(url, dict(r.headers), raw)
-            return {
-                "inlineData": {
-                    "mimeType": mime,
-                    "data": base64.b64encode(raw).decode("ascii"),
-                }
-            }
-        except Exception:
-            return None
 
     refs_obj = payload.refs
     character_refs = []
@@ -1368,6 +1382,49 @@ def clip_image(payload: ClipImageIn):
 
     width = max(256, min(2048, int(payload.width or 1024)))
     height = max(256, min(2048, int(payload.height or 1024)))
+    scene_text = (payload.sceneText or "").strip()
+    refs_obj = payload.refs
+    character_refs = _normalize_ref_list(getattr(refs_obj, "character", None))
+    location_refs = _normalize_ref_list(getattr(refs_obj, "location", None))
+    style_refs = _normalize_ref_list(getattr(refs_obj, "style", None))
+    props_refs = _normalize_ref_list(getattr(refs_obj, "props", None))
+
+    character_images = []
+    for ref_url in character_refs:
+        inline_part = _load_reference_image_inline(ref_url)
+        if inline_part:
+            character_images.append(inline_part)
+
+    location_images = []
+    for ref_url in location_refs:
+        inline_part = _load_reference_image_inline(ref_url)
+        if inline_part:
+            location_images.append(inline_part)
+
+    style_images = []
+    for ref_url in style_refs:
+        inline_part = _load_reference_image_inline(ref_url)
+        if inline_part:
+            style_images.append(inline_part)
+
+    props_images = []
+    for ref_url in props_refs:
+        inline_part = _load_reference_image_inline(ref_url)
+        if inline_part:
+            props_images.append(inline_part)
+
+    refs_debug = {
+        "characterRefCount": len(character_refs),
+        "characterImagesAttached": len(character_images),
+        "locationRefCount": len(location_refs),
+        "locationImagesAttached": len(location_images),
+        "styleRefCount": len(style_refs),
+        "styleImagesAttached": len(style_images),
+        "propsRefCount": len(props_refs),
+        "propsImagesAttached": len(props_images),
+    }
+
+    has_visual_refs_attached = bool(character_images or location_images or style_images or props_images)
     # Normalize aspect label for prompt
     if height > width:
         aspect_ratio = "9:16"
@@ -1379,14 +1436,66 @@ def clip_image(payload: ClipImageIn):
     api_key = (settings.GEMINI_API_KEY or "").strip()
     if not api_key:
         image_url = _mock_scene_image(scene_id, width, height)
-        return {"ok": True, "sceneId": scene_id, "imageUrl": image_url, "engine": "mock", "hint": "no_gemini_key"}
+        return {
+            "ok": True,
+            "sceneId": scene_id,
+            "imageUrl": image_url,
+            "engine": "mock",
+            "hint": "no_gemini_key",
+            "modelUsed": None,
+            "refsDebug": refs_debug,
+        }
 
     try:
-        model = settings.GEMINI_IMAGE_MODEL or "gemini-2.5-flash-image-preview"
+        if has_visual_refs_attached:
+            model = getattr(settings, "GEMINI_VISION_MODEL", None) or settings.GEMINI_IMAGE_MODEL or "gemini-2.5-flash-image-preview"
+        else:
+            model = settings.GEMINI_IMAGE_MODEL or "gemini-2.5-flash-image-preview"
+
+        system_prompt = (
+            "Generate ONE still image for this scene. "
+            "Use attached reference images as source of truth when present. "
+            "Character references define the SAME person; keep identical face identity, gender, body type, and outfit unless scene explicitly changes wardrobe. "
+            "Location references define the same world/environment and must not be replaced. "
+            "Style references define visual language and styling. "
+            "Props references define key objects when relevant. "
+            "Do not redesign the character. Do not replace the environment. Do not invent another person. "
+            "Keep frame consistent with scene description and visual prompt. "
+            "Scene text may be Russian and visual prompt may be English; use both if available, with visual prompt driving composition and action."
+        )
+
+        parts = [{"text": system_prompt}]
+
+        if character_images:
+            parts.append({"text": "Character reference images. All depict the SAME main character."})
+            parts.extend(character_images)
+
+        if location_images:
+            parts.append({"text": "Location reference images. These define the same world/environment."})
+            parts.extend(location_images)
+
+        if style_images:
+            parts.append({"text": "Style reference images. These define visual language and styling."})
+            parts.extend(style_images)
+
+        if props_images:
+            parts.append({"text": "Props reference images. Preserve these objects when relevant."})
+            parts.extend(props_images)
+
+        scene_payload = {
+            "sceneId": scene_id,
+            "style": style,
+            "aspectRatio": aspect_ratio,
+            "resolution": f"{width}x{height}",
+            "sceneText": scene_text,
+            "visualPrompt": prompt,
+        }
+        parts.append({"text": "Scene payload:\n" + json.dumps(scene_payload, ensure_ascii=False)})
+
         body = {
             "contents": [{
                 "role": "user",
-                "parts": [{"text": f"Create one cinematic frame for storyboard scene {scene_id}. Style: {style}. Aspect ratio: {aspect_ratio}. Resolution: {width}x{height}. {prompt}"}],
+                "parts": parts,
             }],
             "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
         }
@@ -1395,16 +1504,39 @@ def clip_image(payload: ClipImageIn):
         if decoded:
             raw, ext = decoded
             image_url = _save_bytes_as_asset(raw, ext)
-            return {"ok": True, "sceneId": scene_id, "imageUrl": image_url, "engine": "gemini"}
+            return {
+                "ok": True,
+                "sceneId": scene_id,
+                "imageUrl": image_url,
+                "engine": "gemini",
+                "modelUsed": model,
+                "refsDebug": refs_debug,
+            }
 
         image_url = _mock_scene_image(scene_id, width, height)
-        return {"ok": True, "sceneId": scene_id, "imageUrl": image_url, "engine": "mock", "hint": "gemini_no_image"}
+        return {
+            "ok": True,
+            "sceneId": scene_id,
+            "imageUrl": image_url,
+            "engine": "mock",
+            "hint": "gemini_no_image",
+            "modelUsed": model,
+            "refsDebug": refs_debug,
+        }
     except ValueError as e:
         return JSONResponse(status_code=400, content={"ok": False, "code": "BAD_REQUEST", "hint": str(e)[:300]})
     except Exception as e:
         try:
             image_url = _mock_scene_image(scene_id, width, height)
-            return {"ok": True, "sceneId": scene_id, "imageUrl": image_url, "engine": "mock", "hint": f"gemini_error:{str(e)[:200]}"}
+            return {
+                "ok": True,
+                "sceneId": scene_id,
+                "imageUrl": image_url,
+                "engine": "mock",
+                "hint": f"gemini_error:{str(e)[:200]}",
+                "modelUsed": model if 'model' in locals() else None,
+                "refsDebug": refs_debug,
+            }
         except Exception:
             return JSONResponse(status_code=500, content={"ok": False, "code": "IMAGE_GENERATION_FAILED", "hint": str(e)[:300]})
 
