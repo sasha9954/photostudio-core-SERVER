@@ -1176,11 +1176,116 @@ MASTER WORLD CONTEXT (session-level):
 - Prop anchor: {prop_anchor_label or "none"}
 All scenes must respect this world context.
 
+SESSION WORLD CONSISTENCY RULES:
+
+All scenes must look like they belong to the SAME continuous world.
+
+Do NOT treat scenes as independent illustrations.
+
+Maintain continuity of:
+
+- lighting conditions
+- weather
+- architectural language
+- street geometry
+- color palette
+- environmental mood
+
+Scenes must feel like different camera shots from the same film scene,
+not different locations or times.
+
+Lighting, atmosphere and architecture must remain consistent.
+
+IMPORTANT:
+Use the FIRST generated scene as the baseline world state.
+All following scenes must inherit the same visual environment.
+
+LIGHTING CONTINUITY:
+
+All scenes must share the same lighting logic.
+
+The first scene defines the lighting conditions.
+
+If the first scene implies:
+
+- overcast sky
+- diffuse winter light
+- cold color temperature
+
+then all following scenes must maintain the SAME lighting conditions.
+
+Do NOT switch to:
+
+- sunny light
+- warm sunset light
+- studio lighting
+- dramatic spotlight lighting
+
+unless explicitly specified in refs or text.
+
+Lighting must remain consistent across the whole storyboard.
+
+Maintain:
+
+- same shadow softness
+- same exposure level
+- same color temperature
+- same light direction
+
+LOCATION CONTINUITY LOCK:
+
+If a location reference exists,
+all scenes must appear to take place in the SAME environment.
+
+Do not generate completely different streets,
+cities or architectural styles.
+
+Maintain continuity of:
+
+- building materials
+- architectural era
+- street width
+- pavement type
+- environmental aging
+
+Scenes must feel like different camera positions
+within the same district or street world.
+
+Camera angle may change,
+but the environment must remain recognizably the same.
+
 STRICT OBJECT LOCK:
 - If props refs exist, they define one anchored prop identity for the whole session.
 - Treat multiple props photos as different angles/details of the same object.
 - Never reinterpret, replace, rename, generalize, or downgrade anchored prop identity.
 - If scene wording conflicts with prop anchor identity, prop anchor identity wins.
+
+PROP INTEGRATION LOCK:
+
+The prop must be physically integrated into the scene.
+
+Ensure that the prop:
+
+- matches scene lighting
+- matches scene exposure
+- matches color temperature
+- matches perspective
+- matches scale relative to the character
+
+The prop must NOT appear:
+
+- pasted
+- floating
+- overly clean compared to the environment
+- composited from another image
+
+The prop must interact naturally with the character:
+
+- realistic hand grip
+- correct weight orientation
+- correct physical contact
+
+The prop must visually belong to the environment.
 
 SOURCE PRIORITY RULES
 
@@ -1732,6 +1837,8 @@ def clip_image(payload: ClipImageIn):
             "GROUND CONTACT: ensure believable physical interaction with surfaces via contact shadows, footprints/compression, and wet reflections when appropriate. "
             "CINEMATIC ATMOSPHERE: use natural depth of field, atmospheric perspective, subtle haze/light scattering, realistic materials/textures, and filmic grading. Avoid plastic skin, flat lighting, and synthetic artifacts. "
             "FINAL RULE: generate ONE cinematic still frame that looks like real footage from a professional film production, never an artificial collage. "
+            "WORLD CONSISTENCY: Maintain the same environment, lighting and visual style as previous scenes from the storyboard. The world state must remain stable. Do not change weather, lighting, architecture, season, or color palette. Treat this frame as another camera shot from the same film scene. "
+            "ENVIRONMENT CONTINUITY: The environment must remain visually consistent. Maintain same street type, same architectural style, same weather conditions, same surface materials, and same atmosphere. The viewer should feel that all frames belong to the same real location. "
             "Scene text may be Russian and visual prompt may be English. Use both when available: visual prompt defines composition/action, and scene text defines narrative context and emotion."
         )
 
