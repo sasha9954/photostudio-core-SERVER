@@ -1123,10 +1123,25 @@ Location reference images:
 - Architecture and atmosphere should match these references
 - Avoid generic environment wording that ignores the reference details
 
+STYLE REFERENCE RULES
+- If style reference images are attached, they define season, atmosphere, palette, texture, weather, environment mood, and overall visual styling.
+- Do not ignore style references.
+- If style references indicate winter / snow / cold season / icy environment, scenes must reflect that visually.
+- Do not default to neutral weather or generic city mood when style references specify a distinct season or atmosphere.
+
+PROPS REFERENCE RULES
+- If props reference images are attached, they define key objects of the scene.
+- If there is only one props reference, treat it as a primary prop.
+- Do not omit the prop when the scene can logically include it.
+- Scene descriptions and visual prompts must explicitly mention the prop whenever relevant.
+- Avoid treating props as optional decoration when they are clearly intended as key scene objects.
+
 When references are present:
 - Scene descriptions must explicitly describe the same man/woman from the reference images.
 - Scene descriptions must explicitly describe the same environment from the reference images.
 - Do not output generic placeholders like "young woman in a room" when references indicate a different person/place.
+- When style refs exist, visualDescription and visualPrompt must explicitly reflect the style-defining season, atmosphere, weather, palette, and texture.
+- When props refs exist, visualDescription and visualPrompt must explicitly mention and integrate the key prop in relevant scenes.
 
 If reference images exist they override imagination.
 
@@ -1451,11 +1466,15 @@ def clip_image(payload: ClipImageIn):
 
         system_prompt = (
             "Generate ONE still image for this scene. "
-            "Use attached reference images as source of truth when present. "
+            "Use character + location + style + props references together when provided; references are source of truth. "
             "Character references define the SAME person; keep identical face identity, gender, body type, and outfit unless scene explicitly changes wardrobe. "
             "Location references define the same world/environment and must not be replaced. "
-            "Style references define visual language and styling. "
-            "Props references define key objects when relevant. "
+            "Style references define season, weather, palette, texture, and atmosphere; this style mood must visibly influence the generated image and must not be dropped. "
+            "If style references indicate winter / snow / cold season / icy environment, the generated image must clearly reflect those conditions. "
+            "Do not replace a style-defined seasonal look with a generic neutral look. "
+            "Props references define key scene objects. Include props prominently whenever relevant. "
+            "If a single prop is attached, treat it as an important primary object, not optional decoration. "
+            "Do not silently omit the key prop if the scene can logically contain it. "
             "Do not redesign the character. Do not replace the environment. Do not invent another person. "
             "Keep frame consistent with scene description and visual prompt. "
             "Scene text may be Russian and visual prompt may be English; use both if available, with visual prompt driving composition and action."
@@ -1472,11 +1491,11 @@ def clip_image(payload: ClipImageIn):
             parts.extend(location_images)
 
         if style_images:
-            parts.append({"text": "Style reference images. These define visual language and styling."})
+            parts.append({"text": "Style reference images. These define season, weather, palette, texture, atmosphere, and overall visual language. Apply them explicitly and visibly in the final frame."})
             parts.extend(style_images)
 
         if props_images:
-            parts.append({"text": "Props reference images. Preserve these objects when relevant."})
+            parts.append({"text": "Props reference images. These are key scene objects. Keep them prominent when relevant; if only one prop is attached, treat it as primary and do not omit it."})
             parts.extend(props_images)
 
         scene_payload = {

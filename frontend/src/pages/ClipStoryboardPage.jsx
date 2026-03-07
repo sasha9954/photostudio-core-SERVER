@@ -145,6 +145,14 @@ function normalizeDurationSec(value) {
 function normalizeImageRefs(refsLike) {
   const refsObj = refsLike && typeof refsLike === "object" ? refsLike : {};
   const toUrlList = (value) => {
+    if (typeof value === "string") {
+      const single = String(value || "").trim();
+      return single ? [single] : [];
+    }
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const single = String(value?.url || "").trim();
+      return single ? [single] : [];
+    }
     if (!Array.isArray(value)) return [];
     return value
       .map((item) => (typeof item === "string" ? item : item?.url))
@@ -1239,7 +1247,8 @@ onParse: async (nodeId) => {
     const characterRefs = getRefList(refCharNode, "ref_character", 5);
     const locationRefs = getRefList(refLocNode, "ref_location", 5);
     const propsRefs = getRefList(refItemsNode, "ref_items", 5);
-    const styleRef = getRefList(refStyleNode, "ref_style", 1)[0] || null;
+    const styleRefs = getRefList(refStyleNode, "ref_style", 1);
+    const styleRef = styleRefs[0] || null;
 
     const scenarioKey = SCENARIO_OPTIONS.some((option) => option.value === brainNow.data?.scenarioKey)
       ? brainNow.data.scenarioKey
@@ -1265,7 +1274,7 @@ onParse: async (nodeId) => {
         character: characterRefs,
         location: locationRefs,
         props: propsRefs,
-        style: styleRef,
+        style: styleRefs,
       },
       characterRefs,
       locationRefs,
@@ -1363,7 +1372,7 @@ onParse: async (nodeId) => {
                   rejectedReason: validation.rejectedReason || null,
                   repairRetryUsed: !!validation.repairRetryUsed,
                   audioHint: out?.plannerDebug?.audio?.hint || null,
-                  refs: { character: characterRefs, location: locationRefs, props: propsRefs, style: styleRef },
+                  refs: { character: characterRefs, location: locationRefs, props: propsRefs, style: styleRefs },
                   settings: { scenarioKey, shootKey, styleKey, freezeStyle },
                 },
               },
