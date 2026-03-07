@@ -1146,6 +1146,23 @@ def clip_plan(payload: BrainIn):
     refs_debug["propAnchorLabel"] = prop_anchor_label or None
     refs_debug["propAnchorSource"] = prop_anchor_source
 
+    style_anchor = (
+        "style defined by style reference images (season, weather, palette, cinematic language)"
+        if style_refs
+        else ((payload.styleKey or "").strip() or "neutral cinematic realism")
+    )
+    lighting_anchor = (
+        "lighting consistent with style references"
+        if style_refs
+        else "natural outdoor cinematic lighting"
+    )
+    location_anchor = (
+        "environment defined by location reference images"
+        if location_refs
+        else "coherent single location environment"
+    )
+    environment_anchor = "consistent weather, atmosphere, materials and environmental mood across scenes"
+
     has_visual_inputs = bool(audio_bytes or character_images or location_images or props_images)
     if has_visual_inputs:
         model_used = getattr(settings, "GEMINI_VISION_MODEL", None) or "gemini-1.5-flash"
@@ -1175,6 +1192,20 @@ MASTER WORLD CONTEXT (session-level):
 - Style: from style refs if present
 - Prop anchor: {prop_anchor_label or "none"}
 All scenes must respect this world context.
+
+SESSION WORLD ANCHORS:
+
+Style anchor: {style_anchor}
+
+Lighting anchor: {lighting_anchor}
+
+Location anchor: {location_anchor}
+
+Environment anchor: {environment_anchor}
+
+All scenes must inherit these anchors.
+
+Do not change these anchors between scenes.
 
 SESSION WORLD CONSISTENCY RULES:
 
@@ -1787,6 +1818,23 @@ def clip_image(payload: ClipImageIn):
         "propAnchorSource": prop_anchor_source,
     }
 
+    style_anchor = (
+        "style defined by style reference images (season, weather, palette, cinematic language)"
+        if style_refs
+        else (style or "neutral cinematic realism")
+    )
+    lighting_anchor = (
+        "lighting consistent with style references"
+        if style_refs
+        else "natural outdoor cinematic lighting"
+    )
+    location_anchor = (
+        "environment defined by location reference images"
+        if location_refs
+        else "coherent single location environment"
+    )
+    environment_anchor = "consistent weather, atmosphere, materials and environmental mood across scenes"
+
     has_visual_refs_attached = bool(character_images or location_images or style_images or props_images)
     # Normalize aspect label for prompt
     if height > width:
@@ -1839,6 +1887,7 @@ def clip_image(payload: ClipImageIn):
             "FINAL RULE: generate ONE cinematic still frame that looks like real footage from a professional film production, never an artificial collage. "
             "WORLD CONSISTENCY: Maintain the same environment, lighting and visual style as previous scenes from the storyboard. The world state must remain stable. Do not change weather, lighting, architecture, season, or color palette. Treat this frame as another camera shot from the same film scene. "
             "ENVIRONMENT CONTINUITY: The environment must remain visually consistent. Maintain same street type, same architectural style, same weather conditions, same surface materials, and same atmosphere. The viewer should feel that all frames belong to the same real location. "
+            "SESSION WORLD ANCHORS: Use these anchors as global constraints: - Style anchor defines season, palette and cinematic language - Lighting anchor defines light direction, softness and color temperature - Location anchor defines architecture and environment - Environment anchor defines weather and atmosphere All generated frames must obey these anchors. Do not reinterpret them. "
             "Scene text may be Russian and visual prompt may be English. Use both when available: visual prompt defines composition/action, and scene text defines narrative context and emotion."
         )
 
@@ -1867,6 +1916,17 @@ def clip_image(payload: ClipImageIn):
             prompt = _enforce_prop_anchor_text(prompt, prop_anchor_label, lang="en")
             scene_text = _enforce_prop_anchor_text(scene_text, prop_anchor_label, lang="ru")
 
+        prompt = (
+            f"{prompt}\n\n"
+            "WORLD ANCHORS:\n\n"
+            f"Style anchor: {style_anchor}\n"
+            f"Lighting anchor: {lighting_anchor}\n"
+            f"Location anchor: {location_anchor}\n"
+            f"Environment anchor: {environment_anchor}\n\n"
+            "These anchors define the global world state.\n"
+            "Do not change them."
+        )
+
         scene_payload = {
             "sceneId": scene_id,
             "style": style,
@@ -1876,6 +1936,10 @@ def clip_image(payload: ClipImageIn):
             "sceneText": scene_text,
             "visualPrompt": prompt,
             "propAnchorLabel": prop_anchor_label or None,
+            "styleAnchor": style_anchor,
+            "lightingAnchor": lighting_anchor,
+            "locationAnchor": location_anchor,
+            "environmentAnchor": environment_anchor,
         }
         parts.append({"text": "Scene payload:\n" + json.dumps(scene_payload, ensure_ascii=False)})
 
