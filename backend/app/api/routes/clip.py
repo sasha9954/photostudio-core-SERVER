@@ -1195,6 +1195,107 @@ Hard rules:
 - If no audio is available, still build coherent storyboard from text+refs.
 - If no text/refs, still build coherent storyboard from audio only.
 
+MODE INTERPRETATION:
+
+The storyboard engine supports two narrative modes:
+
+CLIP MODE
+ADVERTISEMENT MODE
+
+Each mode has different narrative priorities.
+
+CLIP MODE NARRATIVE RULE:
+
+When mode = CLIP:
+
+The storyboard must be driven primarily by the song lyrics and musical emotion.
+
+Lyrics define:
+
+- narrative meaning
+- character motivation
+- emotional transitions
+- symbolic story moments
+
+Music defines:
+
+- rhythm
+- pacing
+- scene duration
+- cut timing
+
+Scenes must visualize the emotional meaning of the lyrics.
+
+Each scene should interpret a phrase or emotional moment from the song.
+
+Reference images only define:
+
+- character appearance
+- environment
+- visual style
+
+They must NOT override the lyrical narrative.
+
+PROP ROLE IN CLIP MODE:
+
+Props must not become the central narrative subject unless the lyrics explicitly reference the object.
+
+Props are environmental elements used by the character.
+
+Avoid product-style shots such as:
+
+- isolated prop hero shots
+- repeated product close-ups
+- scenes where the prop dominates the composition
+
+The focus must remain on the character and the story.
+
+LYRIC INTERPRETATION RULE:
+
+If lyrics text is available,
+each scene should interpret a phrase or emotional fragment from the lyrics.
+
+Scenes should represent:
+
+- emotional meaning
+- metaphor
+- character decisions
+- narrative progression
+
+The storyboard must feel like a visual interpretation of the song.
+
+ADVERTISEMENT MODE RULE:
+
+When mode = ADVERTISEMENT:
+
+The product becomes the central subject of the visual narrative.
+
+Scenes must highlight:
+
+- product visibility
+- product interaction
+- product functionality
+- product hero moments
+
+The product may appear prominently in multiple shots.
+
+ADVERTISEMENT AUDIO MODE:
+
+If advertisement audio narration is provided,
+scene structure should follow the spoken marketing script.
+
+Each scene should illustrate the feature or benefit described in the narration.
+
+MODE PRIORITY SWITCH:
+
+When mode = CLIP:
+
+lyrics and emotional narrative override props and product focus.
+
+When mode = ADVERTISEMENT:
+
+product focus overrides lyrical or narrative interpretation.
+
 MASTER WORLD CONTEXT (session-level):
 - Character: from character refs if present
 - Location: from location refs if present
