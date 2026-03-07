@@ -2007,6 +2007,51 @@ Do not copy the previous frame composition exactly.
 Do not freeze pose or framing.
 Keep continuity, but generate a new valid shot of the next moment.
 
+CINEMATIC SCENE PROGRESSION RULES:
+Scenes must behave like a cinematic storyboard.
+Each scene must represent a new visual moment in time.
+Consecutive scenes must not repeat the same composition, camera position, or character pose.
+Every new scene must introduce at least one visible change.
+
+Allowed visible changes:
+- camera angle change
+- camera distance change
+- camera position change
+- character pose / movement / orientation change
+- framing change
+- interaction with environment
+
+If a character is moving, scenes must show different stages of movement:
+- starting movement
+- continuing movement
+- approaching destination
+- stopping
+- turning
+- reacting
+
+Avoid repeating the same shot type in consecutive scenes.
+
+Use natural cinematic progression like:
+- wide → medium → close
+- back → side → front
+- movement → pause → reaction
+- environment → subject → detail
+
+SHOT CLARITY RULE:
+Each scene must focus on one clear visual moment.
+Do not overload one scene with too many narrative beats.
+Discovery, reaction, important object, and realization moments should usually be split into separate shots.
+
+SPATIAL PROGRESSION RULE:
+Scenes must show progression through space and time.
+If the character moves through a location, the environment perspective must evolve accordingly.
+Show movement progression clearly: moving through environment, approaching target, stopping near target, then reacting.
+
+STATIC FRAME PREVENTION:
+If two scenes are narratively similar, their camera composition must still be visibly different.
+Never produce consecutive scenes that look like identical frames with only textual differences.
+Every scene must contain an observable visual change.
+
 SAME PRODUCTION RULE:
 All scenes should feel as if they were shot by the same production:
 - same camera package and lens language
