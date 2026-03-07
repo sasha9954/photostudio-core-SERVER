@@ -996,6 +996,15 @@ def clip_plan(payload: BrainIn):
     print("CLIP DEBUG location_refs:", location_refs)
     print("CLIP DEBUG attached location images:", len(location_images))
 
+    refs_debug = {
+        "characterRefCount": len(character_refs),
+        "characterImagesAttached": len(character_images),
+        "locationRefCount": len(location_refs),
+        "locationImagesAttached": len(location_images),
+        "styleRefCount": len(style_refs),
+        "propsRefCount": len(props_refs),
+    }
+
     api_key = (settings.GEMINI_API_KEY or "").strip()
     if not api_key:
         return JSONResponse(
@@ -1004,6 +1013,9 @@ def clip_plan(payload: BrainIn):
                 "ok": False,
                 "code": "GEMINI_API_KEY_MISSING",
                 "detail": "Gemini API key is missing for clip planning",
+                "plannerDebug": {
+                    "refsDebug": refs_debug,
+                },
             },
         )
 
@@ -1029,6 +1041,23 @@ Hard rules:
 - lipSyncText must be non-empty only when there is real vocal phrase in that scene.
 - If no audio is available, still build coherent storyboard from text+refs.
 - If no text/refs, still build coherent storyboard from audio only.
+
+REFERENCE PRIORITY RULES
+
+If character reference images are attached:
+- Describe the SAME person from the reference images.
+- Do not invent another man/woman.
+- Do not change gender.
+- Do not replace the outfit unless the story explicitly requests a wardrobe change.
+- Do not invent a different hairstyle, age, or body type.
+- All scenes must refer to the same exact person from the reference images.
+
+If location reference images are attached:
+- Describe the SAME environment from the reference images.
+- Do not replace the setting with another room, street, or world.
+- Architecture, mood, and setting must come from the reference images.
+
+If reference images are attached, they override free imagination.
 
 Response schema (all keys required):
 {{
@@ -1072,11 +1101,18 @@ Character reference images:
 - Do not change facial identity
 - Clothing from reference images should remain consistent unless the story explicitly changes it
 - Do not invent new hairstyles or body types
+- Avoid generic invented phrases when references are specific
 
 Location reference images:
 - These images define the environment of the clip
 - Scenes should take place in this world
 - Architecture and atmosphere should match these references
+- Avoid generic environment wording that ignores the reference details
+
+When references are present:
+- Scene descriptions must explicitly describe the same man/woman from the reference images.
+- Scene descriptions must explicitly describe the same environment from the reference images.
+- Do not output generic placeholders like "young woman in a room" when references indicate a different person/place.
 
 If reference images exist they override imagination.
 
@@ -1239,6 +1275,12 @@ If any of the required descriptive fields are returned in English, the output is
                 "hint": reason,
                 "plannerDebug": {
                     "audio": audio_debug,
+                    "model": {
+                        "modelUsed": model_used,
+                        "hasVisualInputs": has_visual_inputs,
+                        "hasVisualRefsAttached": bool(character_images or location_images),
+                    },
+                    "refsDebug": refs_debug,
                     "validation": {
                         "scenario": mode,
                         "sceneCount": len((parsed or {}).get("scenes") or []),
@@ -1296,6 +1338,12 @@ If any of the required descriptive fields are returned in English, the output is
         "scenes": normalized_scenes,
         "plannerDebug": {
             "audio": audio_debug,
+            "model": {
+                "modelUsed": model_used,
+                "hasVisualInputs": has_visual_inputs,
+                "hasVisualRefsAttached": bool(character_images or location_images),
+            },
+            "refsDebug": refs_debug,
             "validation": {
                 "scenario": mode,
                 "sceneCount": len(normalized_scenes),
