@@ -434,6 +434,63 @@ def _build_session_world_anchors(*, text: str, character_refs: list[str], locati
     text_l = (text or "").strip().lower()
     style_hint = (style_key or "").strip()
 
+    world_cue_to_anchor = [
+        ("stage", "a live performance stage environment with visible rigging, stage floor, and audience-facing orientation"),
+        ("concert", "a live concert venue with performance staging, crowd space, and show-ready production design"),
+        ("club", "an intimate music club venue with performance area, audience zone, and nightlife atmosphere"),
+        ("theater", "a theater performance venue with a formal stage, controlled house lighting, and audience seating"),
+        ("audience", "a performance venue world with audience space, stage focus, and event atmosphere"),
+        ("spotlight", "a stage-oriented performance world where lighting rigs and spotlight focus define the environment"),
+        ("crowd", "a live event venue with crowd area, performer focal point, and concert-like staging"),
+        ("factory", "an industrial factory environment with heavy structural materials and utilitarian spatial design"),
+        ("warehouse", "a large warehouse environment with raw industrial textures and open utilitarian layout"),
+        ("forest", "a forest environment with natural vegetation, trees, and layered outdoor depth"),
+        ("beach", "a beachside environment with open shoreline space, coastal textures, and horizon depth"),
+        ("subway", "an urban subway environment with platforms, transit architecture, and underground infrastructure"),
+        ("rooftop", "a rooftop environment above the city with open skyline views and elevated urban context"),
+        ("church", "a church interior environment with sacred architecture and formal spatial symmetry"),
+        ("bar", "a bar or lounge environment with seating, counter zones, and social nightlife mood"),
+        ("studio", "a controlled studio environment for performance or filming with production equipment context"),
+        ("alley", "a narrow city alley environment with enclosed urban walls and gritty street texture"),
+        ("street", "an urban street environment with road geometry, surrounding buildings, and city circulation"),
+        ("city", "a city environment with urban density, architecture, and active metropolitan context"),
+        ("desert", "a desert environment with arid terrain, open horizon, and dry atmospheric conditions"),
+        ("mountain", "a mountain environment with elevated terrain, expansive natural scale, and rugged topography"),
+        ("office", "an office environment with workspaces, desks, and structured professional interior layout"),
+        ("school", "a school environment with classroom/campus context and academic institutional design"),
+        ("hospital", "a hospital environment with clinical infrastructure, medical spaces, and sterile interior language"),
+        ("room", "an interior room environment defined by enclosed architecture and localized scene staging"),
+    ]
+    style_cue_to_anchor = [
+        ("dimly lit", "dim, low-key lighting with selective visibility and restrained exposure"),
+        ("single spotlight", "single-spotlight performance lighting with strong subject isolation and high contrast"),
+        ("spotlight", "spotlight-driven lighting mood with strong subject focus and controlled falloff"),
+        ("concert lighting", "concert-style dynamic stage lighting with performance-driven highlights and atmosphere"),
+        ("stage lights", "stage-lighting visual language with directional beams and show-like illumination rhythm"),
+        ("club lighting", "club-style lighting atmosphere with nightlife contrast and color-accent illumination"),
+        ("neon", "neon-accented visual style with saturated practical glows and urban nighttime energy"),
+        ("smoky", "smoky atmospheric look with suspended particulates and softened depth transitions"),
+        ("warm light", "warm-toned lighting palette with amber highlights and inviting contrast"),
+        ("cold light", "cool-toned lighting palette with blue/cyan bias and crisp emotional distance"),
+        ("moody", "moody cinematic styling with controlled contrast, emotional shadows, and restrained brightness"),
+        ("cinematic", "cinematic visual language with intentional contrast, composition, and narrative lighting"),
+        ("dark atmosphere", "dark atmospheric styling with low-key exposure and dramatic tonal separation"),
+        ("dramatic lighting", "dramatic lighting with strong chiaroscuro, shaped highlights, and emotional contrast"),
+        ("fog", "fog-rich atmosphere with volumetric depth and softened distant detail"),
+        ("haze", "haze-based atmosphere with gentle diffusion, light bloom, and layered depth"),
+    ]
+
+    text_world_anchor = ""
+    text_style_anchor = ""
+    for cue, anchor in world_cue_to_anchor:
+        if cue in text_l:
+            text_world_anchor = anchor
+            break
+    for cue, anchor in style_cue_to_anchor:
+        if cue in text_l:
+            text_style_anchor = anchor
+            break
+
     if character_refs:
         character_anchor = "same exact person identity as character reference images"
     else:
@@ -445,12 +502,12 @@ def _build_session_world_anchors(*, text: str, character_refs: list[str], locati
     if location_refs:
         location_anchor = "same exact world/location identity as location reference images"
     else:
-        location_anchor = "a narrow European winter street with old brick buildings and wet cobblestone pavement"
+        location_anchor = text_world_anchor or "a narrow European winter street with old brick buildings and wet cobblestone pavement"
 
     if style_refs:
         style_anchor = "same exact style identity from style reference images: weather, season, palette, atmosphere, and lighting mood"
     else:
-        style_anchor = style_hint or "cold cinematic realism, muted winter palette, overcast sky, wet reflective pavement, atmospheric haze"
+        style_anchor = text_style_anchor or style_hint or "cold cinematic realism, muted winter palette, overcast sky, wet reflective pavement, atmospheric haze"
 
     return {
         "character": character_anchor,
@@ -1342,6 +1399,21 @@ Do not rewrite TEXT narrative into generic cinematic fallback.
 Do not collapse specific actions/events into neutral atmospheric portraits.
 If TEXT specifies concrete actions, gestures, interactions, events, or dramatic progression,
 preserve them explicitly in the scene list.
+
+TEXT WORLD OVERRIDE RULE:
+
+If location/style refs are absent, but TEXT explicitly defines a concrete world, venue, or environment,
+derive the session world from TEXT instead of generic planner fallback world initialization.
+
+TEXT STYLE OVERRIDE RULE:
+
+If style refs are absent, but TEXT explicitly defines lighting, performance mood, venue atmosphere,
+or visual styling cues, derive the style anchor from TEXT instead of generic fallback style.
+
+GENERIC FALLBACK LIMIT:
+
+Generic planner fallback world/style may only be used when user input does not define
+a concrete world or concrete style cues.
 
 MODE INTERPRETATION:
 
