@@ -39,6 +39,9 @@ class ClipImageRefsIn(BaseModel):
     style: list[str] = Field(default_factory=list)
     props: list[str] = Field(default_factory=list)
     propAnchorLabel: str | None = None
+    sessionCharacterAnchor: str | None = None
+    sessionLocationAnchor: str | None = None
+    sessionStyleAnchor: str | None = None
 
 
 class AudioSliceIn(BaseModel):
@@ -425,6 +428,47 @@ class BrainIn(BaseModel):
     audioType: str | None = None     # "song" | "bg"
     textType: str | None = None      # "lyrics" | "story" | "notes"
     wantLipSync: bool | None = None
+
+
+def _build_session_world_anchors(*, text: str, character_refs: list[str], location_refs: list[str], style_refs: list[str], style_key: str) -> dict[str, str]:
+    text_l = (text or "").strip().lower()
+    style_hint = (style_key or "").strip()
+
+    if character_refs:
+        character_anchor = "same exact person identity as character reference images"
+    else:
+        if any(word in text_l for word in ["woman", "girl", "her", "she"]):
+            character_anchor = "a solitary woman in her early 30s with short dark hair, expressive eyes, and a dark winter coat"
+        else:
+            character_anchor = "a solitary man in his early 30s with short dark hair and a trimmed beard, wearing a dark winter coat"
+
+    if location_refs:
+        location_anchor = "same exact world/location identity as location reference images"
+    else:
+        location_anchor = "a narrow European winter street with old brick buildings and wet cobblestone pavement"
+
+    if style_refs:
+        style_anchor = "same exact style identity from style reference images: weather, season, palette, atmosphere, and lighting mood"
+    else:
+        style_anchor = style_hint or "cold cinematic realism, muted winter palette, overcast sky, wet reflective pavement, atmospheric haze"
+
+    return {
+        "character": character_anchor,
+        "location": location_anchor,
+        "style": style_anchor,
+    }
+
+
+def _inject_session_world_anchors(prompt: str, anchors: dict[str, str]) -> str:
+    base = (prompt or "").strip()
+    anchor_text = (
+        "SESSION WORLD ANCHORS:\n"
+        f"Character anchor: {anchors.get('character', '')}\n"
+        f"Location anchor: {anchors.get('location', '')}\n"
+        f"Style anchor: {anchors.get('style', '')}\n\n"
+        "These anchors define the persistent identity of the clip world and must remain unchanged across all frames."
+    )
+    return f"{base}\n\n{anchor_text}" if base else anchor_text
 
 
 def _extract_gemini_text(resp: dict) -> str:
@@ -1117,6 +1161,14 @@ def clip_plan(payload: BrainIn):
     freeze_style = bool(payload.freezeStyle)
     want_lipsync = bool(payload.wantLipSync)
 
+    session_world_anchors = _build_session_world_anchors(
+        text=text,
+        character_refs=character_refs,
+        location_refs=location_refs,
+        style_refs=style_refs,
+        style_key=style_key,
+    )
+
     planner_input_signature = _planner_input_signature(
         character_refs=character_refs,
         location_refs=location_refs,
@@ -1366,11 +1418,13 @@ All scenes must respect this world context.
 
 SESSION WORLD ANCHORS:
 
-Style anchor: {style_anchor}
+Character anchor: {session_world_anchors["character"]}
+
+Location anchor: {session_world_anchors["location"]}
+
+Style anchor: {session_world_anchors["style"]}
 
 Lighting anchor: {lighting_anchor}
-
-Location anchor: {location_anchor}
 
 Environment anchor: {environment_anchor}
 
@@ -2260,6 +2314,11 @@ If any of the required descriptive fields are returned in English, the output is
         "energyEvents": plan.get("energyEvents") if isinstance(plan.get("energyEvents"), list) else [],
         "scenes": normalized_scenes,
         "propAnchor": prop_anchor,
+        "sessionWorldAnchors": {
+            "character": session_world_anchors["character"],
+            "location": session_world_anchors["location"],
+            "style": session_world_anchors["style"],
+        },
         "plannerDebug": {
             "audio": audio_debug,
             "inputState": input_state_debug,
@@ -2300,6 +2359,9 @@ def clip_image(payload: ClipImageIn):
     style_refs = _normalize_ref_list(getattr(refs_obj, "style", None))
     props_refs = _normalize_ref_list(getattr(refs_obj, "props", None))
     prop_anchor_label = _clean_anchor_label(getattr(refs_obj, "propAnchorLabel", None))
+    session_character_anchor = str(getattr(refs_obj, "sessionCharacterAnchor", "") or "").strip()
+    session_location_anchor = str(getattr(refs_obj, "sessionLocationAnchor", "") or "").strip()
+    session_style_anchor = str(getattr(refs_obj, "sessionStyleAnchor", "") or "").strip()
 
     character_images = []
     for ref_url in character_refs:
@@ -2344,6 +2406,9 @@ def clip_image(payload: ClipImageIn):
         "propsImagesAttached": len(props_images),
         "propAnchorLabel": prop_anchor_label or None,
         "propAnchorSource": prop_anchor_source,
+        "sessionCharacterAnchor": session_character_anchor or None,
+        "sessionLocationAnchor": session_location_anchor or None,
+        "sessionStyleAnchor": session_style_anchor or None,
     }
 
     style_anchor = (
@@ -2492,16 +2557,19 @@ def clip_image(payload: ClipImageIn):
             scene_text = _enforce_prop_anchor_text(scene_text, prop_anchor_label, lang="ru")
 
         prompt = (
-            f"{prompt}\n\n"
-            "WORLD ANCHORS:\n\n"
-            f"Style anchor: {style_anchor}\n"
-            f"Lighting anchor: {lighting_anchor}\n"
-            f"Location anchor: {location_anchor}\n"
-            f"Environment anchor: {environment_anchor}\n"
-            f"Weather anchor: {weather_anchor}\n"
-            f"Surface anchor: {surface_anchor}\n\n"
-            "These anchors define the global world state.\n"
-            "Do not change them.\n\n"
+            _inject_session_world_anchors(
+                prompt,
+                {
+                    "character": session_character_anchor or "coherent single-character identity across all scenes",
+                    "location": session_location_anchor or location_anchor,
+                    "style": session_style_anchor or style_anchor,
+                },
+            )
+            + "\n\n"
+            + f"Lighting anchor: {lighting_anchor}\n"
+            + f"Environment anchor: {environment_anchor}\n"
+            + f"Weather anchor: {weather_anchor}\n"
+            + f"Surface anchor: {surface_anchor}\n\n"
             "PHYSICAL SCALE RULES:\n\n"
             "Keep the prop at the same realistic real-world size across all frames.\n"
             "The object must remain physically plausible relative to the person.\n"
@@ -2541,6 +2609,9 @@ def clip_image(payload: ClipImageIn):
             "sceneText": scene_text,
             "visualPrompt": prompt,
             "propAnchorLabel": prop_anchor_label or None,
+            "sessionCharacterAnchor": session_character_anchor or None,
+            "sessionLocationAnchor": session_location_anchor or None,
+            "sessionStyleAnchor": session_style_anchor or None,
             "styleAnchor": style_anchor,
             "lightingAnchor": lighting_anchor,
             "locationAnchor": location_anchor,
