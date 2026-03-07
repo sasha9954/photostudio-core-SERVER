@@ -2349,7 +2349,7 @@ def clip_image(payload: ClipImageIn):
     style_anchor = (
         "season, weather, color palette and cinematic visual language must be taken directly from style reference images"
         if style_refs
-        else ((style or "").strip() or "neutral cinematic realism")
+        else ((style or "").strip() or "world-coherent cinematic realism")
     )
     lighting_anchor = (
         "light direction, softness, exposure and color temperature must match the lighting implied by style reference images"
@@ -2409,6 +2409,7 @@ def clip_image(payload: ClipImageIn):
             "SOURCE PRIORITY RULES: Character references define who the person is. Location references define where the scene exists. Style references define season, weather, palette, atmosphere and visual language. Props references define exact object identity. Scene text defines action, emotion, narrative, interaction and placement. Visual prompt defines composition and shot content. Audio (if available) defines timing, rhythm, intensity, and lipsync energy. Shoot mode defines camera language. styleKey/style field is fallback style only when no style references exist. Free imagination is lowest priority and is allowed only when no higher-priority source defines that element. "
             "If any lower-priority input conflicts with higher-priority references, higher-priority references win. Higher-priority sources must never be overridden by lower-priority ones. "
             "Character refs cannot be overridden by scene text. Location refs cannot be overridden by scene text. Style refs cannot be overridden by scene text or generic visual prompt. Props refs cannot be overridden by scene text or generic visual prompt. "
+            "WORLD LIGHTING PRIORITY: location/world/style references define the lighting model, atmosphere, palette, and environmental state. Character and prop references must adapt to that world state. Characters must not preserve reference-image lighting. Props must not preserve reference-image lighting. Props never define scene lighting. "
             "If style refs are absent, styleKey/style may influence the image as fallback. "
             "PROP PRIORITY RULES: if props reference images are attached, props refs define exact object identity. Scene text may describe how the object is used and where it is placed, but must not redefine, replace, or rename what the object is. If text conflicts with props refs, props refs win. If props refs are absent, text may define scene objects. "
             "STRICT OBJECT LOCK: The prop reference image defines the exact prop identity for this session. The prop must remain the same object across all scenes. Never reinterpret, replace, rename, generalize, or downgrade it into another object. "
@@ -2453,7 +2454,11 @@ def clip_image(payload: ClipImageIn):
             "ANATOMIC ANCHORING: Object scale must be anchored relative to the human body. Use stable body-relative proportions such as knee height, lower leg height, hand-carryable size, and forearm/torso relation. The prop must keep the same body-relative scale across all shots. Do not resize the object just because the framing changes. "
             "MACRO CONTEXT LOCK: In close-up or macro shots, the environment state must remain visible through the surface context. If the wide-shot environment is snowy wet cobblestone street, then close-up shots must preserve that same surface logic. Macro shots must not forget snow traces, wetness, pavement material, and winter environment cues. Close framing must not weaken global world continuity. "
             "PROP INTEGRATION HARD LOCK: The prop must be integrated into the environment with the same ambient light, shadow softness, color temperature, reflected floor color, atmospheric softness, and dirt/haze/smoke context. Do not render the prop as a clean product render inside a dirty scene. The prop must visually belong to the same world as the floor, air, and surrounding light. "
+            "PROP RELIGHTING RULE: Do not preserve lighting baked into prop reference images. Prop references define object identity, category, silhouette, material cues, and usage only. Every prop must be fully relit by the current scene environment and must match world light direction, color temperature, ambient bounce, atmospheric diffusion, environmental reflections, shadow softness, shadow direction, and environment color contamination. "
             "ENVIRONMENTAL CONTAMINATION LOCK: If the environment contains dust, smoke, industrial haze, wet reflections, cold fog, snow residue, or dirty floor bounce, then character and prop must inherit that environmental contamination visually. They must not look isolated from the environmental conditions. "
+            "SURFACE INTERACTION RULE: Any object placed on ground, floor, table, or other support surface must show physical contact with that surface. Require contact shadows, plausible contact pressure, subtle local bounce or reflections when appropriate, and slight dust/dirt grounding when appropriate. No floating look and no clean studio isolation inside dirty, industrial, snowy, or wet environments. "
+            "PROP CATEGORY AND SCALE LOCK: Prop references define object class (portable_tool, handheld_object, device, furniture, large_machine, vehicle, environment_object). Keep category-faithful shape, function, and human-relative scale across all shots. Portable and handheld props must keep realistic body-relative size and must not randomly grow or shrink between scenes. "
+            "CLIP WORLD LOCK: Every shot in one clip must belong to one shared world identity. Preserve the same lighting logic, atmosphere, weather state, palette, material response, and dust/fog/snow/rain state across shots. Shot variation is allowed, but world identity must remain unchanged. "
             "PROP PHYSICAL CONSISTENCY: Keep consistent size relative to hands, size relative to torso/legs, grip logic, weight impression, handle/cable behavior, and ground contact behavior. The prop must not look weightless, oversized, undersized, or physically inconsistent between scenes. If the prop is handheld, its scale must remain realistically liftable by the character. "
             "Scene text may be Russian and visual prompt may be English. Use both when available: visual prompt defines composition/action, and scene text defines narrative context and emotion."
         )
@@ -2514,7 +2519,14 @@ def clip_image(payload: ClipImageIn):
             "Do not allow pasted or cutout appearance.\n"
             "Match local atmosphere, dirty light, ambient haze, reflections, and contrast softness.\n"
             "Keep the prop at the same compact real-world size class across all frames.\n"
-            "Do not enlarge the prop for visibility or composition."
+            "Do not enlarge the prop for visibility or composition.\n\n"
+            "HARD WORLD RELIGHTING RULES:\n\n"
+            "Location/style/world references are the lighting authority for this frame.\n"
+            "Character and prop references define identity only and must be fully relit by world lighting and atmosphere.\n"
+            "Never preserve reference-image lighting for props or characters.\n"
+            "Any grounded object must show contact shadows and believable surface interaction.\n"
+            "All visible objects must inherit environmental color contamination, haze, and weather response.\n"
+            "Keep one world identity across clip shots: stable lighting logic, palette, atmosphere, weather, and material response."
         )
 
         scene_payload = {
