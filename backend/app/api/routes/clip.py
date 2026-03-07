@@ -1162,7 +1162,16 @@ def clip_plan(payload: BrainIn):
         else "coherent single-location environment"
     )
     environment_anchor = "weather, atmosphere, surface materials and environmental mood must remain stable across scenes"
-
+    weather_anchor = (
+        "weather state must be taken directly from style reference images and remain unchanged across scenes"
+        if style_refs
+        else "coherent stable weather state across scenes"
+    )
+    surface_anchor = (
+        "ground/surface state must be taken directly from style reference images, including snow traces, wetness, reflections, and material condition"
+        if style_refs
+        else "coherent stable ground and surface condition across scenes"
+    )
     has_visual_inputs = bool(audio_bytes or character_images or location_images or props_images)
     if has_visual_inputs:
         model_used = getattr(settings, "GEMINI_VISION_MODEL", None) or "gemini-1.5-flash"
@@ -1203,9 +1212,74 @@ Location anchor: {location_anchor}
 
 Environment anchor: {environment_anchor}
 
+Weather anchor: {weather_anchor}
+
+Surface anchor: {surface_anchor}
+
 All scenes must inherit these anchors.
 
 Do not change these anchors between scenes.
+
+STYLE-DEFINED ENVIRONMENT STATE:
+
+If style reference images are present, they define:
+
+- season
+- weather state
+- lighting mood
+- color palette
+- surface condition
+- atmospheric mood
+
+These style-defined environmental states must remain stable across all scenes.
+
+Do not reinterpret or weaken them in later scenes.
+
+If the style references imply winter snow, snow traces and cold winter atmosphere,
+do not switch later scenes to generic wet cloudy weather without snow.
+
+WEATHER STATE LOCK:
+
+Weather must remain the same across the whole session unless explicitly changed by text.
+
+If the style reference implies:
+
+- snow
+- winter cold
+- overcast winter weather
+
+then all scenes must preserve that same weather state.
+
+Do NOT switch between:
+
+- snow
+- rain
+- dry cloudy weather
+- neutral weather
+
+unless explicitly requested.
+
+Weather continuity includes:
+
+- presence/absence of snow
+- snow traces on roofs and ground
+- wetness level
+- atmospheric coldness
+
+SURFACE STATE LOCK:
+
+Ground and surface conditions must remain visually consistent across scenes.
+
+Maintain:
+
+- same pavement material
+- same wetness level
+- same snow traces
+- same reflection behavior
+- same environmental wear
+
+If the first scene shows wet cobblestone with snow traces,
+later scenes must preserve that same surface logic.
 
 SESSION WORLD CONSISTENCY RULES:
 
@@ -1351,6 +1425,43 @@ STYLE refs:
 PROPS refs:
 - text may describe prop use/placement
 - text must not rename or replace the object
+
+PROP SCALE LOCK:
+
+The prop must preserve the same real-world physical size class across all scenes.
+
+The object must remain physically plausible relative to the human body.
+
+Do not:
+
+- enlarge it
+- shrink it
+- exaggerate it
+- miniaturize it
+- distort its real-world scale between shots
+
+The prop must keep stable human-relative scale in every frame.
+
+Example:
+If the prop is a portable welding machine,
+it must remain portable-welder sized in every scene,
+not suitcase-sized in one scene and generator-sized in another.
+
+PROP PHYSICAL CONSISTENCY:
+
+Keep consistent:
+
+- size relative to hands
+- size relative to torso/legs
+- grip logic
+- weight impression
+- handle/cable behavior
+- ground contact behavior
+
+The prop must not look weightless, oversized, undersized, or physically inconsistent between scenes.
+
+If the prop is handheld,
+its scale must remain realistically liftable by the character.
 
 AUDIO:
 - may control scene timing, pacing, emotion intensity, and lipsync
@@ -1834,6 +1945,16 @@ def clip_image(payload: ClipImageIn):
         else "coherent single-location environment"
     )
     environment_anchor = "weather, atmosphere, surface materials and environmental mood must remain stable across scenes"
+    weather_anchor = (
+        "weather state must be taken directly from style reference images and remain unchanged across scenes"
+        if style_refs
+        else "coherent stable weather state across scenes"
+    )
+    surface_anchor = (
+        "ground/surface state must be taken directly from style reference images, including snow traces, wetness, reflections, and material condition"
+        if style_refs
+        else "coherent stable ground and surface condition across scenes"
+    )
 
     has_visual_refs_attached = bool(character_images or location_images or style_images or props_images)
     # Normalize aspect label for prompt
@@ -1892,9 +2013,16 @@ def clip_image(payload: ClipImageIn):
             f"Lighting anchor: {lighting_anchor}\n"
             f"Location anchor: {location_anchor}\n"
             f"Environment anchor: {environment_anchor}\n\n"
+            f"Weather anchor: {weather_anchor}\n"
+            f"Surface anchor: {surface_anchor}\n\n"
             "Use these anchors as global constraints. "
             "All generated frames must obey these anchors. "
             "Do not reinterpret them. "
+            "STYLE-DEFINED ENVIRONMENT STATE: If style reference images are present, they define season, weather state, lighting mood, color palette, surface condition, and atmospheric mood. These style-defined environmental states must remain stable across all scenes. Do not reinterpret or weaken them in later scenes. If the style references imply winter snow, snow traces and cold winter atmosphere, do not switch later scenes to generic wet cloudy weather without snow. "
+            "WEATHER STATE LOCK: Weather must remain the same across the whole session unless explicitly changed by text. If the style reference implies snow, winter cold, or overcast winter weather, then all scenes must preserve that same weather state. Do NOT switch between snow, rain, dry cloudy weather, and neutral weather unless explicitly requested. Weather continuity includes presence/absence of snow, snow traces on roofs and ground, wetness level, and atmospheric coldness. "
+            "SURFACE STATE LOCK: Ground and surface conditions must remain visually consistent across scenes. Maintain same pavement material, same wetness level, same snow traces, same reflection behavior, and same environmental wear. If the first scene shows wet cobblestone with snow traces, later scenes must preserve that same surface logic. "
+            "PROP SCALE LOCK: The prop must preserve the same real-world physical size class across all scenes. The object must remain physically plausible relative to the human body. Do not enlarge it, shrink it, exaggerate it, miniaturize it, or distort its real-world scale between shots. The prop must keep stable human-relative scale in every frame. Example: if the prop is a portable welding machine, it must remain portable-welder sized in every scene, not suitcase-sized in one scene and generator-sized in another. "
+            "PROP PHYSICAL CONSISTENCY: Keep consistent size relative to hands, size relative to torso/legs, grip logic, weight impression, handle/cable behavior, and ground contact behavior. The prop must not look weightless, oversized, undersized, or physically inconsistent between scenes. If the prop is handheld, its scale must remain realistically liftable by the character. "
             "Scene text may be Russian and visual prompt may be English. Use both when available: visual prompt defines composition/action, and scene text defines narrative context and emotion."
         )
 
@@ -1929,9 +2057,19 @@ def clip_image(payload: ClipImageIn):
             f"Style anchor: {style_anchor}\n"
             f"Lighting anchor: {lighting_anchor}\n"
             f"Location anchor: {location_anchor}\n"
-            f"Environment anchor: {environment_anchor}\n\n"
+            f"Environment anchor: {environment_anchor}\n"
+            f"Weather anchor: {weather_anchor}\n"
+            f"Surface anchor: {surface_anchor}\n\n"
             "These anchors define the global world state.\n"
-            "Do not change them."
+            "Do not change them.\n\n"
+            "PHYSICAL SCALE RULES:\n\n"
+            "Keep the prop at the same realistic real-world size across all frames.\n"
+            "The object must remain physically plausible relative to the person.\n"
+            "Do not change object scale between shots.\n\n"
+            "WEATHER / SURFACE RULES:\n\n"
+            "Keep the same weather state and surface condition as defined by the style references.\n"
+            "Do not remove snow if snow is part of the style-defined world state.\n"
+            "Do not switch surface logic between snowy, wet, and dry unless explicitly requested."
         )
 
         scene_payload = {
@@ -1947,6 +2085,8 @@ def clip_image(payload: ClipImageIn):
             "lightingAnchor": lighting_anchor,
             "locationAnchor": location_anchor,
             "environmentAnchor": environment_anchor,
+            "weatherAnchor": weather_anchor,
+            "surfaceAnchor": surface_anchor,
         }
         parts.append({"text": "Scene payload:\n" + json.dumps(scene_payload, ensure_ascii=False)})
 
