@@ -253,6 +253,26 @@ def _build_prop_anchor(label: str | None) -> dict | None:
     }
 
 
+def _planner_input_signature(*, character_refs: list[str], location_refs: list[str], style_refs: list[str], props_refs: list[str], text: str, audio_url: str, mode: str, scenario_key: str, shoot_key: str, style_key: str, freeze_style: bool, want_lipsync: bool) -> str:
+    signature_payload = {
+        "characterRefs": character_refs,
+        "locationRefs": location_refs,
+        "styleRefs": style_refs,
+        "propsRefs": props_refs,
+        "text": str(text or "").strip(),
+        "audioUrl": str(audio_url or "").strip(),
+        "mode": str(mode or "").strip(),
+        "settings": {
+            "scenarioKey": str(scenario_key or "").strip(),
+            "shootKey": str(shoot_key or "").strip(),
+            "styleKey": str(style_key or "").strip(),
+            "freezeStyle": bool(freeze_style),
+            "wantLipSync": bool(want_lipsync),
+        },
+    }
+    return json.dumps(signature_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
 def _infer_prop_anchor_label(props_images: list[dict], api_key: str, model_used: str) -> str:
     if not props_images:
         return ""
@@ -1049,13 +1069,19 @@ def clip_plan(payload: BrainIn):
 
 
     refs_obj = payload.refs
-    character_refs = []
-    character_refs.extend(_normalize_ref_list((refs_obj.character if refs_obj else None)))
-    character_refs.extend(_normalize_ref_list(payload.characterRefs))
-    character_refs.extend(_normalize_ref_list(payload.character_refs))
+    character_refs = _normalize_ref_list((refs_obj.character if refs_obj else None))
+    if not character_refs:
+        character_refs = _normalize_ref_list(payload.characterRefs)
+    if not character_refs:
+        character_refs = _normalize_ref_list(payload.character_refs)
 
-    location_refs = _normalize_ref_list((refs_obj.location if refs_obj else None) or payload.locationRefs)
-    props_refs = _normalize_ref_list((refs_obj.props if refs_obj else None) or payload.propsRefs)
+    location_refs = _normalize_ref_list((refs_obj.location if refs_obj else None))
+    if not location_refs:
+        location_refs = _normalize_ref_list(payload.locationRefs)
+
+    props_refs = _normalize_ref_list((refs_obj.props if refs_obj else None))
+    if not props_refs:
+        props_refs = _normalize_ref_list(payload.propsRefs)
 
     style_refs = []
     if refs_obj and getattr(refs_obj, "style", None):
@@ -1080,8 +1106,42 @@ def clip_plan(payload: BrainIn):
     if not style_refs and payload.refStyle:
         style_refs = [str(payload.refStyle).strip()]
 
-    character_refs = [url for url in character_refs if url]
-    character_refs = list(dict.fromkeys(character_refs))[:8]
+    character_refs = list(dict.fromkeys([url for url in character_refs if url]))[:8]
+    location_refs = list(dict.fromkeys([url for url in location_refs if url]))[:8]
+    props_refs = list(dict.fromkeys([url for url in props_refs if url]))[:8]
+    style_refs = list(dict.fromkeys([url for url in style_refs if url]))[:1]
+
+    scenario_key = (payload.scenarioKey or "").strip()
+    shoot_key = (payload.shootKey or "").strip()
+    style_key = (payload.styleKey or "").strip()
+    freeze_style = bool(payload.freezeStyle)
+    want_lipsync = bool(payload.wantLipSync)
+
+    planner_input_signature = _planner_input_signature(
+        character_refs=character_refs,
+        location_refs=location_refs,
+        style_refs=style_refs,
+        props_refs=props_refs,
+        text=text,
+        audio_url=payload.audioUrl or "",
+        mode=mode,
+        scenario_key=scenario_key,
+        shoot_key=shoot_key,
+        style_key=style_key,
+        freeze_style=freeze_style,
+        want_lipsync=want_lipsync,
+    )
+
+    input_state_debug = {
+        "characterRefCount": len(character_refs),
+        "locationRefCount": len(location_refs),
+        "styleRefCount": len(style_refs),
+        "propsRefCount": len(props_refs),
+        "textPresent": bool(text),
+        "audioPresent": bool(payload.audioUrl),
+        "mode": mode,
+        "signature": planner_input_signature,
+    }
 
     character_images = []
     for ref_url in character_refs:
@@ -1125,6 +1185,7 @@ def clip_plan(payload: BrainIn):
                 "code": "GEMINI_API_KEY_MISSING",
                 "detail": "Gemini API key is missing for clip planning",
                 "plannerDebug": {
+                    "inputState": input_state_debug,
                     "refsDebug": refs_debug,
                 },
             },
@@ -2011,6 +2072,7 @@ If any of the required descriptive fields are returned in English, the output is
                 "hint": reason,
                 "plannerDebug": {
                     "audio": audio_debug,
+                    "inputState": input_state_debug,
                     "model": {
                         "modelUsed": model_used,
                         "hasVisualInputs": has_visual_inputs,
@@ -2081,6 +2143,7 @@ If any of the required descriptive fields are returned in English, the output is
         "propAnchor": prop_anchor,
         "plannerDebug": {
             "audio": audio_debug,
+            "inputState": input_state_debug,
             "model": {
                 "modelUsed": model_used,
                 "hasVisualInputs": has_visual_inputs,

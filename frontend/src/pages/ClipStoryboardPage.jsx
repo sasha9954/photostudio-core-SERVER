@@ -142,29 +142,107 @@ function normalizeDurationSec(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-function normalizeImageRefs(refsLike) {
-  const refsObj = refsLike && typeof refsLike === "object" ? refsLike : {};
-  const toUrlList = (value) => {
-    if (typeof value === "string") {
-      const single = String(value || "").trim();
-      return single ? [single] : [];
+function stableRefsSignature(refs = []) {
+  return refs
+    .map((item) => String(item?.url || "").trim())
+    .filter(Boolean)
+    .join("|");
+}
+
+function buildPlannerInputSignature({ characterRefs = [], locationRefs = [], styleRefs = [], propsRefs = [], text = "", audioUrl = "", mode = "clip", settings = {} }) {
+  return JSON.stringify({
+    characterRefs: stableRefsSignature(characterRefs),
+    locationRefs: stableRefsSignature(locationRefs),
+    styleRefs: stableRefsSignature(styleRefs),
+    propsRefs: stableRefsSignature(propsRefs),
+    text: String(text || "").trim(),
+    audioUrl: String(audioUrl || "").trim(),
+    mode: String(mode || "clip"),
+    settings: {
+      scenarioKey: String(settings?.scenarioKey || "clip"),
+      shootKey: String(settings?.shootKey || "cinema"),
+      styleKey: String(settings?.styleKey || "realism"),
+      freezeStyle: !!settings?.freezeStyle,
+      wantLipSync: !!settings?.wantLipSync,
+    },
+  });
+}
+
+function collectBrainPlannerInput({ brainNodeId, nodesList, edgesList }) {
+  const inEdges = (edgesList || []).filter((e) => e.target === brainNodeId);
+
+  const pickSourceNode = (handleId) => {
+    const edgeExplicit = [...inEdges].reverse().find((e) => (e.targetHandle || "") === handleId);
+    if (edgeExplicit) return (nodesList || []).find((x) => x.id === edgeExplicit.source) || null;
+    if (handleId === "audio") {
+      const e0 = [...inEdges].reverse().find((e) => e.source === "audio");
+      if (e0) return (nodesList || []).find((x) => x.id === "audio") || null;
     }
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      const single = String(value?.url || "").trim();
-      return single ? [single] : [];
+    if (handleId === "text") {
+      const e0 = [...inEdges].reverse().find((e) => e.source === "text");
+      if (e0) return (nodesList || []).find((x) => x.id === "text") || null;
     }
-    if (!Array.isArray(value)) return [];
-    return value
-      .map((item) => (typeof item === "string" ? item : item?.url))
-      .map((url) => String(url || "").trim())
-      .filter(Boolean);
+    return null;
   };
+
+  const getRefList = (refNode, expectedKind, max = 5) => {
+    if (refNode?.type !== "refNode" || refNode?.data?.kind !== expectedKind) return [];
+    const refsRaw = Array.isArray(refNode?.data?.refs) ? refNode.data.refs : [];
+    return refsRaw
+      .map((item) => ({ url: String(item?.url || "").trim() }))
+      .filter((item) => !!item.url)
+      .slice(0, max);
+  };
+
+  const brainNode = (nodesList || []).find((x) => x.id === brainNodeId);
+  const audioNode = pickSourceNode("audio");
+  const textNode = pickSourceNode("text");
+  const refCharNode = pickSourceNode("ref_character");
+  const refLocNode = pickSourceNode("ref_location");
+  const refStyleNode = pickSourceNode("ref_style");
+  const refItemsNode = pickSourceNode("ref_items");
+
+  const characterRefs = getRefList(refCharNode, "ref_character", 5);
+  const locationRefs = getRefList(refLocNode, "ref_location", 5);
+  const propsRefs = getRefList(refItemsNode, "ref_items", 5);
+  const styleRefs = getRefList(refStyleNode, "ref_style", 1);
+  const scenarioKey = SCENARIO_OPTIONS.some((option) => option.value === brainNode?.data?.scenarioKey)
+    ? brainNode.data.scenarioKey
+    : "clip";
+  const shootKey = brainNode?.data?.shootKey || "cinema";
+  const styleKey = brainNode?.data?.styleKey || "realism";
+  const freezeStyle = !!brainNode?.data?.freezeStyle;
+  const wantLipSync = !!brainNode?.data?.wantLipSync;
+  const audioUrl = audioNode?.type === "audioNode" ? (audioNode.data?.audioUrl || "") : "";
+  const textValue = textNode?.type === "textNode" ? String(textNode.data?.textValue || "") : "";
+  const mode = (brainNode?.data?.mode || scenarioKey || "clip").toLowerCase();
+
+  const signature = buildPlannerInputSignature({
+    characterRefs,
+    locationRefs,
+    styleRefs,
+    propsRefs,
+    text: textValue,
+    audioUrl,
+    mode,
+    settings: { scenarioKey, shootKey, styleKey, freezeStyle, wantLipSync },
+  });
+
   return {
-    character: toUrlList(refsObj.character),
-    location: toUrlList(refsObj.location),
-    style: toUrlList(refsObj.style),
-    props: toUrlList(refsObj.props),
-    propAnchorLabel: String(refsObj.propAnchorLabel || refsObj.propAnchor?.label || "").trim() || undefined,
+    signature,
+    mode,
+    textValue,
+    audioUrl,
+    characterRefs,
+    locationRefs,
+    propsRefs,
+    styleRefs,
+    styleRef: styleRefs[0] || null,
+    scenarioKey,
+    shootKey,
+    styleKey,
+    freezeStyle,
+    wantLipSync,
   };
 }
 
@@ -856,8 +934,13 @@ const scenarioBrainRefs = useMemo(() => {
     .reverse()
     .find((e) => e.target === scenarioNode.id && (e.targetHandle || "") === "plan_in");
   if (!incomingPlanEdge?.source) return { character: [], location: [], style: [], props: [] };
-  const brainNode = nodes.find((n) => n.id === incomingPlanEdge.source && n.type === "brainNode");
-  return normalizeImageRefs(brainNode?.data?.scenePlan?.refs);
+  const brainInput = collectBrainPlannerInput({ brainNodeId: incomingPlanEdge.source, nodesList: nodes, edgesList: edges });
+  return {
+    character: brainInput.characterRefs,
+    location: brainInput.locationRefs,
+    style: brainInput.styleRefs,
+    props: brainInput.propsRefs,
+  };
 }, [edges, nodes, scenarioNode?.id]);
 
 const scenarioScenes = useMemo(() => {
@@ -1087,6 +1170,47 @@ const scenarioSelectedAudioSliceUrl = useMemo(() => resolveAssetUrl(scenarioSele
     edgesRef.current = edges || [];
   }, [edges]);
 
+  useEffect(() => {
+    const nodesNow = nodesRef.current || [];
+    const edgesNow = edgesRef.current || [];
+    const invalidBrainIds = nodesNow
+      .filter((n) => n.type === "brainNode")
+      .filter((brainNode) => {
+        if (brainNode?.data?.isParsing) return false;
+        const hasPlanData = !!brainNode?.data?.scenePlan || !!brainNode?.data?.lastPlanMeta || (Array.isArray(brainNode?.data?.scenes) && brainNode.data.scenes.length > 0);
+        if (!hasPlanData) return false;
+        const currentSig = collectBrainPlannerInput({ brainNodeId: brainNode.id, nodesList: nodesNow, edgesList: edgesNow }).signature;
+        const plannedSig = String(brainNode?.data?.plannerInputSignature || "");
+        return !!plannedSig && plannedSig !== currentSig;
+      })
+      .map((x) => x.id);
+
+    if (!invalidBrainIds.length) return;
+
+    setNodes((prev) => {
+      const next = prev.map((n) => {
+        if (!invalidBrainIds.includes(n.id)) return n;
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            scenes: [],
+            scenePlan: null,
+            lastPlanMeta: null,
+            plannerInputSignature: null,
+          },
+        };
+      });
+
+      const staleTargets = edgesNow.filter((e) => invalidBrainIds.includes(e.source)).map((e) => e.target);
+      return next.map((n) =>
+        staleTargets.includes(n.id) && (n.type === "storyboardNode" || n.type === "resultsNode")
+          ? { ...n, data: { ...n.data, scenes: [] } }
+          : n
+      );
+    });
+  }, [nodes, edges, setNodes]);
+
 
   const removeNode = useCallback((nodeId) => {
     setNodes((prev) => prev.filter((n) => n.id !== nodeId));
@@ -1195,7 +1319,7 @@ onClipSec: (nodeId, value) => {
                 setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, clipSec: safe } } : x)));
               },
 onParse: async (nodeId) => {
-  const brainCurrent = nodes.find((x) => x.id === nodeId);
+  const brainCurrent = nodesRef.current.find((x) => x.id === nodeId);
   if (brainCurrent?.data?.isParsing) return;
 
   const parseToken = parseTokenRef.current + 1;
@@ -1204,68 +1328,30 @@ onParse: async (nodeId) => {
   setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, data: { ...x.data, isParsing: true, activeParseToken: parseToken } } : x)));
 
   try {
-    const brainNow = nodes.find((x) => x.id === nodeId);
-    if (!brainNow) return;
+    const planInput = collectBrainPlannerInput({ brainNodeId: nodeId, nodesList: nodesRef.current, edgesList: edgesRef.current });
+    const {
+      signature: plannerInputSignature,
+      mode,
+      textValue,
+      audioUrl,
+      characterRefs,
+      locationRefs,
+      propsRefs,
+      styleRefs,
+      styleRef,
+      scenarioKey,
+      shootKey,
+      styleKey,
+      freezeStyle,
+      wantLipSync,
+    } = planInput;
 
-    // --- inputs by explicit handles (no conflicts) ---
-    const inEdges = edges.filter((e) => e.target === nodeId);
-
-    const pickSourceNode = (handleId) => {
-      // 1) Prefer explicit handle wiring (ReactFlow targetHandle)
-      const edgeExplicit = [...inEdges].reverse().find((e) => (e.targetHandle || "") === handleId);
-      if (edgeExplicit) return nodes.find((x) => x.id === edgeExplicit.source) || null;
-
-      // 2) Backward-compat / default edges: if targetHandle is missing,
-      // map by well-known default node ids ("audio","text") so BRAIN can actually see inputs.
-      if (handleId === "audio") {
-        const e0 = [...inEdges].reverse().find((e) => e.source === "audio");
-        if (e0) return nodes.find((x) => x.id === "audio") || null;
-      }
-      if (handleId === "text") {
-        const e0 = [...inEdges].reverse().find((e) => e.source === "text");
-        if (e0) return nodes.find((x) => x.id === "text") || null;
-      }
-
-      return null;
-    };
-
-    const audioNode = pickSourceNode("audio");
-    const textNode = pickSourceNode("text");
-    const refCharNode = pickSourceNode("ref_character");
-    const refLocNode = pickSourceNode("ref_location");
-    const refStyleNode = pickSourceNode("ref_style");
-    const refItemsNode = pickSourceNode("ref_items");
-
-    const getRefList = (refNode, expectedKind, max = 5) => {
-      if (refNode?.type !== "refNode" || refNode?.data?.kind !== expectedKind) return [];
-      const refsRaw = Array.isArray(refNode?.data?.refs) ? refNode.data.refs : [];
-      return refsRaw
-        .map((item) => ({ url: String(item?.url || "").trim() }))
-        .filter((item) => !!item.url)
-        .slice(0, max);
-    };
-
-    const characterRefs = getRefList(refCharNode, "ref_character", 5);
-    const locationRefs = getRefList(refLocNode, "ref_location", 5);
-    const propsRefs = getRefList(refItemsNode, "ref_items", 5);
-    const styleRefs = getRefList(refStyleNode, "ref_style", 1);
-    const styleRef = styleRefs[0] || null;
-
-    const scenarioKey = SCENARIO_OPTIONS.some((option) => option.value === brainNow.data?.scenarioKey)
-      ? brainNow.data.scenarioKey
-      : "clip";
-    const shootKey = brainNow.data?.shootKey || "cinema";
-    const styleKey = brainNow.data?.styleKey || "realism";
-    const freezeStyle = !!brainNow.data?.freezeStyle;
-    const wantLipSync = !!brainNow.data?.wantLipSync;
-
-    const audioUrl = audioNode?.type === "audioNode" ? (audioNode.data?.audioUrl || "") : "";
     const audioType = wantLipSync ? "song" : "bg"; // clip-only auto mapping from wantLipSync
-    const textValue = textNode?.type === "textNode" ? String(textNode.data?.textValue || "") : "";
 
     const payload = {
       audioUrl: audioUrl || null,
       text: textValue || null,
+      mode,
       scenarioKey,
       shootKey,
       styleKey,
@@ -1294,6 +1380,8 @@ onParse: async (nodeId) => {
     if (!res.ok || !out?.ok) throw new Error(out?.detail || out?.hint || "clip_plan_failed");
 
     if (parseTokenRef.current !== parseToken) return;
+    const latestInput = collectBrainPlannerInput({ brainNodeId: nodeId, nodesList: nodesRef.current, edgesList: edgesRef.current });
+    if (latestInput.signature !== plannerInputSignature) return;
 
     const audioDuration = Number(out?.audioDuration || 30);
     const scenesRaw = Array.isArray(out?.scenes) ? out.scenes : [];
@@ -1361,6 +1449,7 @@ onParse: async (nodeId) => {
                   rejectedReason: validation.rejectedReason || null,
                   repairRetryUsed: !!validation.repairRetryUsed,
                   audioHint: out?.plannerDebug?.audio?.hint || null,
+                  plannerInputSignature,
                 },
                 scenePlan: {
                   engine: out.engine || "gemini",
@@ -1382,6 +1471,7 @@ onParse: async (nodeId) => {
                   },
                   settings: { scenarioKey, shootKey, styleKey, freezeStyle },
                 },
+                plannerInputSignature,
               },
             }
           : x
