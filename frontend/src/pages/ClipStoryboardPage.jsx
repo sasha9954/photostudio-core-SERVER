@@ -834,6 +834,7 @@ useEffect(() => {
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(defaultNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(defaultEdges);
 
 const scenarioNode = useMemo(() => {
   if (scenarioEditor.nodeId) return nodes.find((n) => n.id === scenarioEditor.nodeId) || null;
@@ -1066,7 +1067,6 @@ const scenarioSelectedAudioSliceUrl = useMemo(() => resolveAssetUrl(scenarioSele
     setAssemblyHint("TODO: страница монтажа пока не подключена");
   }, [globalAudioUrlRaw, scenarioScenes]);
 
-  const [edges, setEdges, onEdgesChange] = useEdgesState(defaultEdges);
   const nodesRef = useRef([]);
   const edgesRef = useRef([]);
 
