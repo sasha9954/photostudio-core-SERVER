@@ -537,6 +537,25 @@ def _trim_continuity_value(value: str, limit: int = 220) -> str:
     return text[:limit]
 
 
+def _derive_production_scale(*, session_world_anchors: dict[str, str], scene: dict) -> str:
+    hints: list[str] = []
+    for key in ["location", "style"]:
+        v = _trim_continuity_value((session_world_anchors or {}).get(key) or "", 260)
+        if v:
+            hints.append(v.lower())
+    for key in ["productionScale", "venueScale", "venueType", "audienceScale", "worldState", "eventState", "visualDescription"]:
+        v = _trim_continuity_value((scene or {}).get(key) or "", 260)
+        if v:
+            hints.append(v.lower())
+
+    combined = " ".join(hints)
+    if any(token in combined for token in ["arena", "stadium", "festival", "massive stage", "pyro tower", "jumbotron"]):
+        return "large arena/festival production scale"
+    if any(token in combined for token in ["club", "small venue", "intimate", "indoor room", "bar stage", "medium venue"]):
+        return "small-to-medium intimate concert production scale"
+    return "same established concert production scale class from opening scenes"
+
+
 def _build_scene_continuity_memory(*, scene: dict, session_world_anchors: dict[str, str], prop_anchor_label: str) -> dict[str, str]:
 
     location = _trim_continuity_value(
@@ -582,6 +601,13 @@ def _build_scene_continuity_memory(*, scene: dict, session_world_anchors: dict[s
         "propState": _trim_continuity_value(
             f"same persistent prop identities and scale class: {prop_anchor_label}" if prop_anchor_label else "same important prop identities and scale class"
         ),
+        "productionScale": _trim_continuity_value(
+            _derive_production_scale(session_world_anchors=session_world_anchors, scene=scene),
+            220,
+        ),
+        "audienceState": _trim_continuity_value(
+            "same event audience identity, crowd scale class, density logic, and front-row geometry; reactions may intensify without changing who this crowd is"
+        ),
     }
 
 
@@ -589,7 +615,7 @@ def _sanitize_continuity_memory(memory: dict | None) -> dict[str, str] | None:
     if not isinstance(memory, dict):
         return None
     cleaned = {}
-    for key in ["location", "lighting", "colorPalette", "cameraLanguage", "characterState", "worldState", "propState"]:
+    for key in ["location", "lighting", "colorPalette", "cameraLanguage", "characterState", "worldState", "propState", "productionScale", "audienceState"]:
         value = _trim_continuity_value(memory.get(key) or "")
         if value:
             cleaned[key] = value
@@ -2261,7 +2287,7 @@ Scene text alone must not invent small visual accessories when character refs co
 
 CONTINUITY MEMORY REQUIREMENT:
 For each scene, fill continuityMemory with short structured persistent state summary.
-continuityMemory captures persistent world setup for the next scene (location, lighting, color palette, camera language, character state, world state, prop state).
+continuityMemory captures persistent world setup for the next scene (location, lighting, color palette, camera language, character state, world state, prop state, production scale, audience state).
 This is continuity reference, NOT composition lock.
 Do not force exact pose/framing repetition.
 
@@ -2564,6 +2590,8 @@ If any of the required descriptive fields are returned in English, the output is
         "weather": weather_anchor,
         "surface": surface_anchor,
         "propAnchorLabel": prop_anchor_label or None,
+        "productionScale": _derive_production_scale(session_world_anchors=session_world_anchors, scene=scenes[0] if scenes else {}),
+        "audienceState": "same event audience identity, crowd scale class, density logic, and front-row geometry across all scenes",
     }
     for idx, s in enumerate(scenes):
         start = float(s.get("start"))
@@ -2610,6 +2638,8 @@ If any of the required descriptive fields are returned in English, the output is
             "lyricFragment": lyric_fragment,
             "continuityMemory": continuity_memory,
             "previousContinuityMemory": previous_continuity_memory,
+            "productionScale": (session_baseline or {}).get("productionScale") if isinstance(session_baseline, dict) else None,
+            "audienceState": (session_baseline or {}).get("audienceState") if isinstance(session_baseline, dict) else None,
         }
         normalized_scenes.append(scene_obj)
         previous_scene = s
@@ -2791,6 +2821,9 @@ def clip_image(payload: ClipImageIn):
             "All scenes belong to the same continuous world and moment in time. "
             "SCENE-TO-SCENE CONTINUITY: treat this frame as the next moment after the previous scene, preserving persistent world setup while allowing new action and framing. "
             "PERSISTENT VS DELTA: keep location identity, lighting logic, palette, camera language, character identity, world state, and prop identity stable unless explicitly changed by scene payload; only action/emotion/framing progression should change. "
+            "PRODUCTION SCALE LOCK: keep the same show production scale class across scenes unless the storyboard explicitly changes venue scale. Energy/intensity may rise, but do not upgrade small/medium concert staging into arena/festival scale without explicit instruction. Preserve stage geometry class, rig scale, and production footprint continuity. "
+            "AUDIENCE SCALE/IDENTITY LOCK: preserve the same event crowd across scenes: same crowd scale class, same density logic, same front-row geometry logic, and same overall audience identity. Crowd emotion may intensify, but it must still read as the same audience from the same event. "
+            "DELTA PRECISION RULE: if scene delta requests a close-up, microphone detail, hand detail, or emotional facial beat, the frame must prioritize that exact beat and framing intent, and must not drift back to a generic wide performance shot. "
             "NO COMPOSITION CLONE: do not copy previous frame composition exactly; continuity reference is soft and cinematic, not pose/framing lock. "
             "GLOBAL WORLD CONTINUITY: preserve consistency for time of day, lighting conditions, sky brightness and color, street light intensity, ambient brightness, atmospheric haze/fog, and environmental color grading. "
             "WEATHER CONSISTENCY: maintain consistent snow/rain/fog/wind, snow coverage, wet/dry surfaces, atmospheric particles, and visible breath in cold air when applicable. "
@@ -2948,8 +2981,9 @@ def clip_image(payload: ClipImageIn):
             parts.append({
                 "text": (
                     "CONTINUITY EXECUTION RULES:\n"
-                    "PERSIST from continuity memory: world/location identity, lighting logic, color palette/grade, camera language, character identity, key props, and global event/world condition.\n"
+                    "PERSIST from continuity memory: world/location identity, lighting logic, color palette/grade, camera language, character identity, key props, global event/world condition, production scale class, and audience identity/scale logic.\n"
                     "CHANGE for the current scene: action beat, pose, expression, blocking, framing, camera distance/angle, and moment progression.\n"
+                    "DELTA PRECISION: if sceneDelta asks for close-up/microphone detail/hand detail/emotional facial beat, keep that exact focal beat in-frame rather than reverting to a generic wide shot.\n"
                     "Do not copy previous composition or freeze previous pose. This must feel like the next cinematic moment in the same film world."
                 )
             })
@@ -2973,6 +3007,8 @@ def clip_image(payload: ClipImageIn):
             "sessionLocationAnchor": session_location_anchor or None,
             "sessionStyleAnchor": session_style_anchor or None,
             "previousContinuityMemory": previous_continuity_memory,
+            "productionScale": (session_baseline or {}).get("productionScale") if isinstance(session_baseline, dict) else None,
+            "audienceState": (session_baseline or {}).get("audienceState") if isinstance(session_baseline, dict) else None,
             "styleAnchor": style_anchor,
             "lightingAnchor": lighting_anchor,
             "locationAnchor": location_anchor,
