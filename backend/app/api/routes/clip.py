@@ -1136,12 +1136,25 @@ PROPS REFERENCE RULES
 - Scene descriptions and visual prompts must explicitly mention the prop whenever relevant.
 - Avoid treating props as optional decoration when they are clearly intended as key scene objects.
 
+PROP PRIORITY RULES
+
+If props reference images are attached:
+- Props refs define exact object identity.
+- Scene text may describe prop action, role, placement, or interaction.
+- Scene text must not replace or rename the object into a different item.
+- Object identity comes from refs, not from text.
+- Example enforcement: if the prop ref is a welding machine, it must remain a welding machine and must not become a backpack, bag, suitcase, toolbox, speaker, generator, or generic equipment case.
+
+If props refs are absent:
+- Props may be inferred from scene text.
+
 When references are present:
 - Scene descriptions must explicitly describe the same man/woman from the reference images.
 - Scene descriptions must explicitly describe the same environment from the reference images.
 - Do not output generic placeholders like "young woman in a room" when references indicate a different person/place.
 - When style refs exist, visualDescription and visualPrompt must explicitly reflect the style-defining season, atmosphere, weather, palette, and texture.
 - When props refs exist, visualDescription and visualPrompt must explicitly mention and integrate the key prop in relevant scenes.
+- When props refs exist, visualDescription and visualPrompt must preserve exact prop identity from refs and must never replace or rename the prop based on scene text.
 
 If reference images exist they override imagination.
 
@@ -1472,6 +1485,7 @@ def clip_image(payload: ClipImageIn):
             "LOCATION WORLD LOCK: keep architecture style, building proportions, street layout, materials/textures, signage style, and cultural environment as the same location. "
             "TIME PERIOD CONSISTENCY: architecture, vehicles, clothing, signage, and technology must remain in the same historical era. "
             "REFERENCE RULES: use all provided references as source of truth. Character references define the same person. Location references define the same world and architecture. Style references define weather, season, palette, atmosphere, and cinematic language. Props references define key objects. "
+            "PROP PRIORITY RULES: if props reference images are attached, props refs define exact object identity. Scene text may describe how the object is used and where it is placed, but must not redefine, replace, or rename what the object is. If text conflicts with props refs, props refs win. If props refs are absent, text may define scene objects. "
             "CHARACTER IDENTITY LOCK: preserve facial structure, hairstyle, body proportions, skin tone, facial hair, gender, and age appearance. Do not redesign the person. "
             "CHARACTER DETAIL LOCK: preserve clothing type/colors, logos/brand marks, accessories, hairstyle, and carried items unless scene text explicitly changes wardrobe. "
             "PROP CONSISTENCY: maintain prop design, materials, dimensions, cables/attachments, brand markings, and wear/texture. Do not redesign props. "
@@ -1503,6 +1517,7 @@ def clip_image(payload: ClipImageIn):
         if props_images:
             parts.append({"text": "Props reference images. These are key scene objects. Keep them prominent when relevant; if only one prop is attached, treat it as primary and do not omit it."})
             parts.extend(props_images)
+            parts.append({"text": "The prop identity is defined by the reference images and must not be replaced."})
 
         scene_payload = {
             "sceneId": scene_id,
