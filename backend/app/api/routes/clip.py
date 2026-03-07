@@ -1517,6 +1517,55 @@ Do not render the character as:
 
 The subject must feel photographed in the same place and lighting conditions as the environment.
 
+SUBJECT AND PROP ENVIRONMENT MATCH:
+
+Character and prop must inherit the same environmental qualities as the scene.
+
+Match:
+
+- ambient haze
+- dust
+- smoke diffusion
+- reflected dirty light
+- floor color bounce
+- local contrast softness
+- environmental color contamination
+
+Do not render the character or prop as cleaner, sharper, or separately lit than the environment.
+
+Character and prop must feel physically present in the same air, same light, and same atmosphere as the scene.
+
+NO CUTOUT / NO COMPOSITE LOOK:
+
+Do not render the character or prop as:
+
+- pasted
+- composited
+- cut out
+- sticker-like
+- separately exposed
+- separately color-graded
+
+They must feel captured inside the same environment,
+with the same atmospheric depth and lighting logic.
+
+Edges, contrast, color temperature, and softness must match the environment.
+
+CHARACTER INTEGRATION LOCK:
+
+The character must inherit:
+
+- local ambient light
+- environmental shadow softness
+- atmospheric haze
+- reflected floor color
+- industrial / urban environmental contamination when applicable
+
+Do not keep the character unnaturally clean or studio-like if the world is dusty, hazy, smoky, wet, dirty, snowy, or industrial.
+
+The subject must feel photographed in the same environment,
+not inserted afterward.
+
 ATMOSPHERIC DEPTH RULE:
 
 All visible elements must be affected by the same atmosphere.
@@ -1546,6 +1595,45 @@ It must not become:
 - distorted in apparent volume
 
 The prop must remain physically plausible relative to the human body.
+
+HARD PROP SIZE CLASS LOCK:
+
+The prop belongs to a fixed real-world size class.
+
+If the prop is a portable welding machine,
+its physical class is compact carryable equipment,
+approximately small-suitcase class.
+
+It must never become:
+
+- oversized
+- generator-sized
+- floor-machine sized
+- enlarged to dominate the frame
+- visually inflated to reveal more detail
+
+The prop must keep the same physical size class across all scenes.
+
+BODY-RELATIVE SCALE REFERENCE:
+
+The prop must remain consistent relative to the human body.
+
+Use stable body-relative references such as:
+
+- hand grip
+- shin height
+- knee level
+- lower leg size
+- forearm carry scale
+
+Do not change prop size class between:
+
+- wide shots
+- medium shots
+- close-ups
+- macro shots
+
+Framing must not justify scaling the object larger or smaller.
 
 ANATOMIC ANCHORING:
 
@@ -1687,6 +1775,37 @@ The prop must interact naturally with the character:
 - correct physical contact
 
 The prop must visually belong to the environment.
+
+PROP INTEGRATION HARD LOCK:
+
+The prop must be integrated into the environment with the same:
+
+- ambient light
+- shadow softness
+- color temperature
+- reflected floor color
+- atmospheric softness
+- dirt / haze / smoke context
+
+Do not render the prop as a clean product render inside a dirty scene.
+
+The prop must visually belong to the same world as the floor, air, and surrounding light.
+
+ENVIRONMENTAL CONTAMINATION LOCK:
+
+If the environment contains:
+
+- dust
+- smoke
+- industrial haze
+- wet reflections
+- cold fog
+- snow residue
+- dirty floor bounce
+
+then character and prop must inherit that environmental contamination visually.
+
+They must not look isolated from the environmental conditions.
 
 SOURCE PRIORITY RULES
 
@@ -2323,11 +2442,18 @@ def clip_image(payload: ClipImageIn):
             "VISIBLE WEATHER LOCK: If snow is part of the style-defined environment state, snow must remain visible in every frame. Snow accumulation or snow traces must remain visible on at least some of ground edges, rooftops, pavement gaps, horizontal surfaces, street borders, and environmental surfaces. Do not reduce snowy winter state into generic wet cold weather. Visible weather cues must remain present even in close-up and macro shots. "
             "SUBJECT RELIGHTING RULE: Character lighting must be derived entirely from the environment. Do not preserve lighting baked into character reference images. The generated subject must match the environment in light direction, color temperature, ambient bounce light, shadow softness, exposure, and atmospheric haze. The character must not look studio-lit inside an outdoor cinematic environment. "
             "PHYSICAL SUBJECT INTEGRATION: The character must appear physically present inside the same world as the background. Match ambient depth, edge contrast, environmental color bounce, surface reflections, ground contact shadows, and local atmospheric perspective. Do not render the character as pasted, composited, cut out, separately lit, or cleaner than the environment. The subject must feel photographed in the same place and lighting conditions as the environment. "
+            "SUBJECT AND PROP ENVIRONMENT MATCH: Character and prop must inherit the same environmental qualities as the scene. Match ambient haze, dust, smoke diffusion, reflected dirty light, floor color bounce, local contrast softness, and environmental color contamination. Do not render the character or prop as cleaner, sharper, or separately lit than the environment. Character and prop must feel physically present in the same air, same light, and same atmosphere as the scene. "
+            "NO CUTOUT / NO COMPOSITE LOOK: Do not render the character or prop as pasted, composited, cut out, sticker-like, separately exposed, or separately color-graded. They must feel captured inside the same environment, with the same atmospheric depth and lighting logic. Edges, contrast, color temperature, and softness must match the environment. "
+            "CHARACTER INTEGRATION LOCK: The character must inherit local ambient light, environmental shadow softness, atmospheric haze, reflected floor color, and industrial/urban environmental contamination when applicable. Do not keep the character unnaturally clean or studio-like if the world is dusty, hazy, smoky, wet, dirty, snowy, or industrial. The subject must feel photographed in the same environment, not inserted afterward. "
             "ATMOSPHERIC DEPTH RULE: All visible elements must be affected by the same atmosphere. Apply consistent haze, moisture, light scattering and atmospheric depth to background, character, and props. Do not keep the subject artificially crisp if the environment is soft, hazy, cold, wet, snowy, or diffuse-lit. "
             "PROP SCALE LOCK: The prop must preserve the same real-world physical size class across all scenes. The object must remain physically plausible relative to the human body. Do not enlarge it, shrink it, exaggerate it, miniaturize it, or distort its real-world scale between shots. The prop must keep stable human-relative scale in every frame. Example: if the prop is a portable welding machine, it must remain portable-welder sized in every scene, not suitcase-sized in one scene and generator-sized in another. "
             "PROP SIZE CLASS LOCK: The prop must belong to a stable real-world size class across all scenes. The object must not change its physical class between frames. Example: a portable welding machine must remain portable-welder sized in every frame. It must not become oversized, generator-sized, miniaturized, enlarged to fit composition, or distorted in apparent volume. The prop must remain physically plausible relative to the human body. "
+            "HARD PROP SIZE CLASS LOCK: The prop belongs to a fixed real-world size class. If the prop is a portable welding machine, its physical class is compact carryable equipment, approximately small-suitcase class. It must never become oversized, generator-sized, floor-machine sized, enlarged to dominate the frame, or visually inflated to reveal more detail. The prop must keep the same physical size class across all scenes. "
+            "BODY-RELATIVE SCALE REFERENCE: The prop must remain consistent relative to the human body. Use stable body-relative references such as hand grip, shin height, knee level, lower leg size, and forearm carry scale. Do not change prop size class between wide shots, medium shots, close-ups, and macro shots. Framing must not justify scaling the object larger or smaller. "
             "ANATOMIC ANCHORING: Object scale must be anchored relative to the human body. Use stable body-relative proportions such as knee height, lower leg height, hand-carryable size, and forearm/torso relation. The prop must keep the same body-relative scale across all shots. Do not resize the object just because the framing changes. "
             "MACRO CONTEXT LOCK: In close-up or macro shots, the environment state must remain visible through the surface context. If the wide-shot environment is snowy wet cobblestone street, then close-up shots must preserve that same surface logic. Macro shots must not forget snow traces, wetness, pavement material, and winter environment cues. Close framing must not weaken global world continuity. "
+            "PROP INTEGRATION HARD LOCK: The prop must be integrated into the environment with the same ambient light, shadow softness, color temperature, reflected floor color, atmospheric softness, and dirt/haze/smoke context. Do not render the prop as a clean product render inside a dirty scene. The prop must visually belong to the same world as the floor, air, and surrounding light. "
+            "ENVIRONMENTAL CONTAMINATION LOCK: If the environment contains dust, smoke, industrial haze, wet reflections, cold fog, snow residue, or dirty floor bounce, then character and prop must inherit that environmental contamination visually. They must not look isolated from the environmental conditions. "
             "PROP PHYSICAL CONSISTENCY: Keep consistent size relative to hands, size relative to torso/legs, grip logic, weight impression, handle/cable behavior, and ground contact behavior. The prop must not look weightless, oversized, undersized, or physically inconsistent between scenes. If the prop is handheld, its scale must remain realistically liftable by the character. "
             "Scene text may be Russian and visual prompt may be English. Use both when available: visual prompt defines composition/action, and scene text defines narrative context and emotion."
         )
@@ -2382,7 +2508,13 @@ def clip_image(payload: ClipImageIn):
             "Preserve visible weather cues from the style-defined world state.\n"
             "Keep the prop at the same realistic real-world size class across all frames.\n"
             "Do not resize the prop for composition.\n"
-            "Maintain the same surface logic in wide, medium, close-up and macro shots."
+            "Maintain the same surface logic in wide, medium, close-up and macro shots.\n\n"
+            "SUBJECT / PROP REALISM RULES:\n\n"
+            "Keep the character and prop fully integrated into the environment.\n"
+            "Do not allow pasted or cutout appearance.\n"
+            "Match local atmosphere, dirty light, ambient haze, reflections, and contrast softness.\n"
+            "Keep the prop at the same compact real-world size class across all frames.\n"
+            "Do not enlarge the prop for visibility or composition."
         )
 
         scene_payload = {
