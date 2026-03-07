@@ -1281,6 +1281,140 @@ Maintain:
 If the first scene shows wet cobblestone with snow traces,
 later scenes must preserve that same surface logic.
 
+GLOBAL ENVIRONMENT STATE:
+
+Style reference images define the global environment state for the entire session.
+
+This includes:
+
+- season
+- weather
+- lighting mood
+- color palette
+- atmospheric conditions
+- ground surface state
+
+These properties must remain constant across all scenes.
+
+Camera framing or shot type (wide, medium, close-up, macro) must NOT weaken these environmental constraints.
+
+VISIBLE WEATHER LOCK:
+
+If snow is part of the style-defined environment state,
+snow must remain visible in every frame.
+
+Snow accumulation or snow traces must remain visible on at least some of:
+
+- ground edges
+- rooftops
+- pavement gaps
+- horizontal surfaces
+- street borders
+- environmental surfaces
+
+Do not reduce snowy winter state into generic wet cold weather.
+
+Visible weather cues must remain present even in close-up and macro shots.
+
+SUBJECT RELIGHTING RULE:
+
+Character lighting must be derived entirely from the environment.
+
+Do not preserve lighting baked into character reference images.
+
+The generated subject must match the environment in:
+
+- light direction
+- color temperature
+- ambient bounce light
+- shadow softness
+- exposure
+- atmospheric haze
+
+The character must not look studio-lit inside an outdoor cinematic environment.
+
+PHYSICAL SUBJECT INTEGRATION:
+
+The character must appear physically present inside the same world as the background.
+
+Match:
+
+- ambient depth
+- edge contrast
+- environmental color bounce
+- surface reflections
+- ground contact shadows
+- local atmospheric perspective
+
+Do not render the character as:
+- pasted
+- composited
+- cut out
+- separately lit
+- cleaner than the environment
+
+The subject must feel photographed in the same place and lighting conditions as the environment.
+
+ATMOSPHERIC DEPTH RULE:
+
+All visible elements must be affected by the same atmosphere.
+
+Apply consistent haze, moisture, light scattering and atmospheric depth to:
+
+- background
+- character
+- props
+
+Do not keep the subject artificially crisp if the environment is soft, hazy, cold, wet, snowy, or diffuse-lit.
+
+PROP SIZE CLASS LOCK:
+
+The prop must belong to a stable real-world size class across all scenes.
+
+The object must not change its physical class between frames.
+
+Example:
+A portable welding machine must remain portable-welder sized in every frame.
+
+It must not become:
+- oversized
+- generator-sized
+- miniaturized
+- enlarged to fit composition
+- distorted in apparent volume
+
+The prop must remain physically plausible relative to the human body.
+
+ANATOMIC ANCHORING:
+
+Object scale must be anchored relative to the human body.
+
+Use stable body-relative proportions such as:
+
+- knee height
+- lower leg height
+- hand-carryable size
+- forearm / torso relation
+
+The prop must keep the same body-relative scale across all shots.
+
+Do not resize the object just because the framing changes.
+
+MACRO CONTEXT LOCK:
+
+In close-up or macro shots, the environment state must remain visible through the surface context.
+
+If the wide-shot environment is snowy wet cobblestone street,
+then close-up shots must preserve that same surface logic.
+
+Macro shots must not forget:
+- snow traces
+- wetness
+- pavement material
+- winter environment cues
+
+Close framing must not weaken global world continuity.
+
 SESSION WORLD CONSISTENCY RULES:
 
 All scenes must look like they belong to the SAME continuous world.
@@ -2021,7 +2155,15 @@ def clip_image(payload: ClipImageIn):
             "STYLE-DEFINED ENVIRONMENT STATE: If style reference images are present, they define season, weather state, lighting mood, color palette, surface condition, and atmospheric mood. These style-defined environmental states must remain stable across all scenes. Do not reinterpret or weaken them in later scenes. If the style references imply winter snow, snow traces and cold winter atmosphere, do not switch later scenes to generic wet cloudy weather without snow. "
             "WEATHER STATE LOCK: Weather must remain the same across the whole session unless explicitly changed by text. If the style reference implies snow, winter cold, or overcast winter weather, then all scenes must preserve that same weather state. Do NOT switch between snow, rain, dry cloudy weather, and neutral weather unless explicitly requested. Weather continuity includes presence/absence of snow, snow traces on roofs and ground, wetness level, and atmospheric coldness. "
             "SURFACE STATE LOCK: Ground and surface conditions must remain visually consistent across scenes. Maintain same pavement material, same wetness level, same snow traces, same reflection behavior, and same environmental wear. If the first scene shows wet cobblestone with snow traces, later scenes must preserve that same surface logic. "
+            "GLOBAL ENVIRONMENT STATE: Style reference images define the global environment state for the entire session. This includes season, weather, lighting mood, color palette, atmospheric conditions, and ground surface state. These properties must remain constant across all scenes. Camera framing or shot type (wide, medium, close-up, macro) must NOT weaken these environmental constraints. "
+            "VISIBLE WEATHER LOCK: If snow is part of the style-defined environment state, snow must remain visible in every frame. Snow accumulation or snow traces must remain visible on at least some of ground edges, rooftops, pavement gaps, horizontal surfaces, street borders, and environmental surfaces. Do not reduce snowy winter state into generic wet cold weather. Visible weather cues must remain present even in close-up and macro shots. "
+            "SUBJECT RELIGHTING RULE: Character lighting must be derived entirely from the environment. Do not preserve lighting baked into character reference images. The generated subject must match the environment in light direction, color temperature, ambient bounce light, shadow softness, exposure, and atmospheric haze. The character must not look studio-lit inside an outdoor cinematic environment. "
+            "PHYSICAL SUBJECT INTEGRATION: The character must appear physically present inside the same world as the background. Match ambient depth, edge contrast, environmental color bounce, surface reflections, ground contact shadows, and local atmospheric perspective. Do not render the character as pasted, composited, cut out, separately lit, or cleaner than the environment. The subject must feel photographed in the same place and lighting conditions as the environment. "
+            "ATMOSPHERIC DEPTH RULE: All visible elements must be affected by the same atmosphere. Apply consistent haze, moisture, light scattering and atmospheric depth to background, character, and props. Do not keep the subject artificially crisp if the environment is soft, hazy, cold, wet, snowy, or diffuse-lit. "
             "PROP SCALE LOCK: The prop must preserve the same real-world physical size class across all scenes. The object must remain physically plausible relative to the human body. Do not enlarge it, shrink it, exaggerate it, miniaturize it, or distort its real-world scale between shots. The prop must keep stable human-relative scale in every frame. Example: if the prop is a portable welding machine, it must remain portable-welder sized in every scene, not suitcase-sized in one scene and generator-sized in another. "
+            "PROP SIZE CLASS LOCK: The prop must belong to a stable real-world size class across all scenes. The object must not change its physical class between frames. Example: a portable welding machine must remain portable-welder sized in every frame. It must not become oversized, generator-sized, miniaturized, enlarged to fit composition, or distorted in apparent volume. The prop must remain physically plausible relative to the human body. "
+            "ANATOMIC ANCHORING: Object scale must be anchored relative to the human body. Use stable body-relative proportions such as knee height, lower leg height, hand-carryable size, and forearm/torso relation. The prop must keep the same body-relative scale across all shots. Do not resize the object just because the framing changes. "
+            "MACRO CONTEXT LOCK: In close-up or macro shots, the environment state must remain visible through the surface context. If the wide-shot environment is snowy wet cobblestone street, then close-up shots must preserve that same surface logic. Macro shots must not forget snow traces, wetness, pavement material, and winter environment cues. Close framing must not weaken global world continuity. "
             "PROP PHYSICAL CONSISTENCY: Keep consistent size relative to hands, size relative to torso/legs, grip logic, weight impression, handle/cable behavior, and ground contact behavior. The prop must not look weightless, oversized, undersized, or physically inconsistent between scenes. If the prop is handheld, its scale must remain realistically liftable by the character. "
             "Scene text may be Russian and visual prompt may be English. Use both when available: visual prompt defines composition/action, and scene text defines narrative context and emotion."
         )
@@ -2069,7 +2211,14 @@ def clip_image(payload: ClipImageIn):
             "WEATHER / SURFACE RULES:\n\n"
             "Keep the same weather state and surface condition as defined by the style references.\n"
             "Do not remove snow if snow is part of the style-defined world state.\n"
-            "Do not switch surface logic between snowy, wet, and dry unless explicitly requested."
+            "Do not switch surface logic between snowy, wet, and dry unless explicitly requested.\n\n"
+            "SUBJECT / SCALE / ATMOSPHERE RULES:\n\n"
+            "Keep the character fully integrated into the environment.\n"
+            "Match subject lighting to the scene.\n"
+            "Preserve visible weather cues from the style-defined world state.\n"
+            "Keep the prop at the same realistic real-world size class across all frames.\n"
+            "Do not resize the prop for composition.\n"
+            "Maintain the same surface logic in wide, medium, close-up and macro shots."
         )
 
         scene_payload = {
