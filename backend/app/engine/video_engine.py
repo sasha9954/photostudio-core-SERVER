@@ -528,16 +528,17 @@ def generate_video(kind: str, source_image: str, fmt: str, model: str, camera: s
         # Lighting (safe presets)
         lighting_key = (lighting or "soft").strip().lower()
         if lighting_key == "soft":
-            lighting_prompt = "Soft studio lighting, flattering, even illumination"
+            lighting_prompt = "Soft environment lighting with natural bounce and physically grounded contact shadows"
         elif lighting_key == "contrast":
-            lighting_prompt = "High-contrast lighting, defined shadows, cinematic depth"
+            lighting_prompt = "High-contrast environmental lighting with coherent shadow direction and grounded contact shadows"
         elif lighting_key == "warm":
-            lighting_prompt = "Warm evening lighting, golden tone, cozy ambience"
+            lighting_prompt = "Warm evening environmental lighting with realistic ambient bounce and contact shadows"
         else:
-            lighting_prompt = "Neutral lighting"
+            lighting_prompt = "Neutral environment-driven lighting consistent with scene sources"
 
         # Prepend lighting so both Kling and Veo see it.
-        prompt = f"{lighting_prompt}.\n{prompt or ''}".strip()
+        world_lock = "Relight all characters and props to match the same scene environment. Ignore source/reference lighting. Keep consistent light direction, color temperature, ambient bounce, reflections, atmospheric diffusion, and contact shadows. No studio or invisible lights."
+        prompt = f"{lighting_prompt}. {world_lock}\n{prompt or ''}".strip()
 
         if model == "classic":
             api_key = load_env_value("KLING_API_KEY")

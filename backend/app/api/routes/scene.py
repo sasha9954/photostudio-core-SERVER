@@ -24,6 +24,19 @@ from app.services.auth_service import add_ledger
 COOKIE_NAME = "ps_token"
 router = APIRouter()
 
+WORLD_LIGHTING_POLICY = (
+    "World lighting consistency: all visible elements (characters, props, tools, held objects, furniture, vehicles, "
+    "environment objects) must use the SAME environmental lighting model. "
+    "Ignore lighting from reference images and relight all subjects from the current environment only. "
+    "Match light direction, color temperature, ambient bounce, shadow softness and direction, atmospheric diffusion, "
+    "environmental reflections, and environment color contamination. "
+    "All grounded objects must cast visible contact shadows and must not look floating. "
+    "Props must look physically integrated: correct reflections, shadows, bounce, atmospheric depth, and surface interaction "
+    "(dust/dirt/grounding where appropriate). "
+    "Keep prop category behavior and realistic scale consistent across shots. "
+    "No studio-style invisible lighting; lighting sources must be explainable by the scene environment."
+)
+
 def _current_user_id(req: Request) -> str:
     tok = req.cookies.get(COOKIE_NAME)
     if not tok:
@@ -315,7 +328,7 @@ def scene_apply_details(req: Request, body: SceneApplyDetailsIn):
         base_prompt = "Apply the provided detail reference images to the SAME person and outfit. Keep identity, face, body, pose, and background unchanged. Improve realism and match details only."
     else:
         base_prompt = "Apply the provided detail reference images to the SAME location scene. Keep camera, composition, lighting and all other elements unchanged. Match details only."
-    full_prompt = (base_prompt + " " + prompt).strip()
+    full_prompt = (base_prompt + " " + WORLD_LIGHTING_POLICY + " " + prompt).strip()
 
     try:
         out_dataurl = create_asset(kind=kind, prompt=full_prompt, base_image=base_dataurl, details=detail_dataurls)
@@ -379,7 +392,8 @@ def scene_generate_job(req: Request, body: SceneGenerateJobIn):
                 base_dataurl = _url_to_dataurl(body.baseUrl)
 
             prompt = (body.prompt or "").strip()
-            full_prompt = prompt if prompt else ("Create a photorealistic fashion model" if kind == "model" else "Create a photorealistic fashion location background")
+            seed_prompt = prompt if prompt else ("Create a photorealistic fashion model" if kind == "model" else "Create a photorealistic fashion location background")
+            full_prompt = (WORLD_LIGHTING_POLICY + " " + seed_prompt).strip()
             fmt = _normalize_format(body.format)
             full_prompt = (full_prompt + " " + _format_hint(fmt, kind)).strip()
 
@@ -474,7 +488,7 @@ def scene_apply_details_job(req: Request, body: SceneApplyDetailsJobIn):
                 base_prompt = "Apply the provided detail reference images to the SAME person and outfit. Keep identity, face, body, pose, and background unchanged. Improve realism and match details only."
             else:
                 base_prompt = "Apply the provided detail reference images to the SAME location scene. Keep camera, composition, lighting and all other elements unchanged. Match details only."
-            full_prompt = (base_prompt + " " + prompt).strip()
+            full_prompt = (base_prompt + " " + WORLD_LIGHTING_POLICY + " " + prompt).strip()
             fmt = _normalize_format(body.format)
             full_prompt = (full_prompt + " " + _format_hint(fmt, kind)).strip()
 

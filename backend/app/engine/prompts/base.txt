@@ -6,3 +6,14 @@
 - ЛОГО/ПРИНТ/ТЕКСТ на одежде НЕ редизайнить и НЕ перерисовывать. Только перенести максимально точно.
 - Максимальная реалистичность: швы, фактура ткани, складки, фурнитура, молнии, пуговицы.
 Сцена должна быть одинаковой между кадрами в рамках одной сессии (identity lock + scene lock).
+
+
+WORLD LIGHTING CONSISTENCY (STRICT):
+- Every visible element in frame (model, props, tools, handheld items, furniture, vehicles, environment objects) must share one environment-driven lighting model.
+- Never preserve reference-image lighting; always relight subjects to the current scene environment.
+- Match environment light direction, color temperature, ambient bounce, shadow softness/direction, atmospheric diffusion, reflections, and color contamination.
+- Ground all touching objects with visible contact shadows; no floating objects.
+- Props must be integrated into the world (reflections, contamination, depth, dust/dirt interactions where applicable), not studio-lit or isolated.
+- Keep prop scale realistic and consistent across shots in the same clip/world.
+- Keep clip world lock: stable lighting identity, palette, weather, materials, and atmosphere across shots.
+- No invisible studio lights unless explicitly requested.
