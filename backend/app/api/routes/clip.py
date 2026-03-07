@@ -1308,6 +1308,41 @@ Hard rules:
 - If no audio is available, still build coherent storyboard from text+refs.
 - If no text/refs, still build coherent storyboard from audio only.
 
+TEXT NODE PRIORITY RULE:
+
+If TEXT is provided, it is the primary narrative source for the clip.
+
+TEXT must define:
+
+- what happens in each scene
+- event progression across scenes
+- scene-specific actions and interactions
+- character intention
+- emotional beats
+
+AUDIO PRIORITY RULE:
+
+AUDIO defines:
+
+- timing
+- rhythm
+- intensity
+- segmentation
+- vocal emphasis
+
+AUDIO must not overwrite or replace TEXT narrative content.
+If both TEXT and AUDIO are present:
+
+- TEXT defines story content
+- AUDIO defines pacing and cut structure
+
+NO GENERIC PLANNER REWRITE:
+
+Do not rewrite TEXT narrative into generic cinematic fallback.
+Do not collapse specific actions/events into neutral atmospheric portraits.
+If TEXT specifies concrete actions, gestures, interactions, events, or dramatic progression,
+preserve them explicitly in the scene list.
+
 MODE INTERPRETATION:
 
 The storyboard engine supports two narrative modes:
