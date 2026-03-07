@@ -42,6 +42,7 @@ class ClipImageRefsIn(BaseModel):
     sessionCharacterAnchor: str | None = None
     sessionLocationAnchor: str | None = None
     sessionStyleAnchor: str | None = None
+    previousContinuityMemory: dict | None = None
 
 
 class AudioSliceIn(BaseModel):
@@ -526,6 +527,41 @@ def _inject_session_world_anchors(prompt: str, anchors: dict[str, str]) -> str:
         "These anchors define the persistent identity of the clip world and must remain unchanged across all frames."
     )
     return f"{base}\n\n{anchor_text}" if base else anchor_text
+
+
+def _trim_continuity_value(value: str, limit: int = 220) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    return text[:limit]
+
+
+def _build_scene_continuity_memory(*, scene: dict, session_world_anchors: dict[str, str], prop_anchor_label: str) -> dict[str, str]:
+    scene_text = _trim_continuity_value(scene.get("sceneText") or scene.get("visualDescription") or scene.get("prompt") or "")
+    visual_prompt = _trim_continuity_value(scene.get("imagePrompt") or scene.get("visualPrompt") or scene.get("prompt") or "")
+    reason = _trim_continuity_value(scene.get("why") or scene.get("reason") or "")
+    scene_combo = _trim_continuity_value("; ".join([x for x in [scene_text, visual_prompt, reason] if x]), 280)
+
+    return {
+        "location": _trim_continuity_value(session_world_anchors.get("location") or "same established location identity and environment geometry"),
+        "lighting": _trim_continuity_value(session_world_anchors.get("style") or "same lighting logic from previous scene"),
+        "colorPalette": _trim_continuity_value(session_world_anchors.get("style") or "same production palette and grade mood"),
+        "cameraLanguage": _trim_continuity_value("same production camera package and cinematic language; vary framing for scene progression"),
+        "characterState": _trim_continuity_value(session_world_anchors.get("character") or "same character identity, wardrobe and visual traits"),
+        "worldState": _trim_continuity_value(scene_combo or "same weather/time atmosphere and event continuity"),
+        "propState": _trim_continuity_value(
+            f"same persistent prop identity: {prop_anchor_label}" if prop_anchor_label else "same persistent important props and scale class"
+        ),
+    }
+
+
+def _sanitize_continuity_memory(memory: dict | None) -> dict[str, str] | None:
+    if not isinstance(memory, dict):
+        return None
+    cleaned = {}
+    for key in ["location", "lighting", "colorPalette", "cameraLanguage", "characterState", "worldState", "propState"]:
+        value = _trim_continuity_value(memory.get(key) or "")
+        if value:
+            cleaned[key] = value
+    return cleaned or None
 
 
 def _extract_gemini_text(resp: dict) -> str:
@@ -1826,6 +1862,35 @@ Macro shots must not forget:
 
 Close framing must not weaken global world continuity.
 
+SCENE-TO-SCENE CONTINUITY RULE:
+Each new scene must be treated as the next moment of the same story world, not as an independent image.
+
+PERSISTENT WORLD RULE:
+Preserve across scenes unless storyboard explicitly changes them:
+- location identity
+- lighting logic
+- color palette / grade mood
+- environment materials
+- weather / time of day
+- character wardrobe and identity
+- prop identity and scale class
+- historical/cultural setting
+- event identity
+
+SCENE DELTA RULE:
+Only the current scene action, framing, emotional beat, and local event progression should change.
+
+NO COMPOSITION CLONE RULE:
+Do not copy the previous frame composition exactly.
+Do not freeze pose or framing.
+Keep continuity, but generate a new valid shot of the next moment.
+
+SAME PRODUCTION RULE:
+All scenes should feel as if they were shot by the same production:
+- same camera package and lens language
+- same lighting setup logic
+- same set/world
+
 SESSION WORLD CONSISTENCY RULES:
 
 All scenes must look like they belong to the SAME continuous world.
@@ -2098,6 +2163,12 @@ Do not add headphones, glasses, jewelry, bags, backpacks, hats, watches, necklac
 
 Scene text alone must not invent small visual accessories when character refs contradict or do not support them.
 
+CONTINUITY MEMORY REQUIREMENT:
+For each scene, fill continuityMemory with short structured persistent state summary.
+continuityMemory captures persistent world setup for the next scene (location, lighting, color palette, camera language, character state, world state, prop state).
+This is continuity reference, NOT composition lock.
+Do not force exact pose/framing repetition.
+
 Response schema (all keys required):
 {{
   "track": {{"durationSec": number, "bpm": number, "timeSignature": string, "energyProfile": string}},
@@ -2115,7 +2186,16 @@ Response schema (all keys required):
     "lipSyncText": string,
     "camera": string,
     "motion": string,
-    "reason": string
+    "reason": string,
+    "continuityMemory": {{
+      "location": string,
+      "lighting": string,
+      "colorPalette": string,
+      "cameraLanguage": string,
+      "characterState": string,
+      "worldState": string,
+      "propState": string
+    }}
   }}]
 }}
 
@@ -2377,6 +2457,7 @@ If any of the required descriptive fields are returned in English, the output is
     scenes = plan.get("scenes") or []
 
     normalized_scenes = []
+    previous_continuity_memory = None
     for idx, s in enumerate(scenes):
         start = float(s.get("start"))
         end = float(s.get("end"))
@@ -2392,7 +2473,19 @@ If any of the required descriptive fields are returned in English, the output is
             visual_desc = _enforce_prop_anchor_text(visual_desc, prop_anchor_label, lang="ru")
             reason_text = _enforce_prop_anchor_text(reason_text, prop_anchor_label, lang="ru")
         scene_type = str(s.get("sceneType") or "visual_rhythm").strip() or "visual_rhythm"
-        normalized_scenes.append({
+        continuity_memory = _sanitize_continuity_memory(s.get("continuityMemory"))
+        if not continuity_memory:
+            continuity_memory = _build_scene_continuity_memory(
+                scene={
+                    **s,
+                    "sceneText": visual_desc,
+                    "imagePrompt": visual_prompt,
+                    "why": reason_text,
+                },
+                session_world_anchors=session_world_anchors,
+                prop_anchor_label=prop_anchor_label,
+            )
+        scene_obj = {
             **s,
             "id": str(s.get("id") or f"scene_{idx + 1:03d}"),
             "start": start,
@@ -2406,7 +2499,11 @@ If any of the required descriptive fields are returned in English, the output is
             "isLipSync": bool(lip_sync_text),
             "lipSyncText": lip_sync_text,
             "lyricFragment": lyric_fragment,
-        })
+            "continuityMemory": continuity_memory,
+            "previousContinuityMemory": previous_continuity_memory,
+        }
+        normalized_scenes.append(scene_obj)
+        previous_continuity_memory = continuity_memory
 
     return {
         "ok": True,
@@ -2469,6 +2566,7 @@ def clip_image(payload: ClipImageIn):
     session_character_anchor = str(getattr(refs_obj, "sessionCharacterAnchor", "") or "").strip()
     session_location_anchor = str(getattr(refs_obj, "sessionLocationAnchor", "") or "").strip()
     session_style_anchor = str(getattr(refs_obj, "sessionStyleAnchor", "") or "").strip()
+    previous_continuity_memory = _sanitize_continuity_memory(getattr(refs_obj, "previousContinuityMemory", None))
 
     character_images = []
     for ref_url in character_refs:
@@ -2516,6 +2614,7 @@ def clip_image(payload: ClipImageIn):
         "sessionCharacterAnchor": session_character_anchor or None,
         "sessionLocationAnchor": session_location_anchor or None,
         "sessionStyleAnchor": session_style_anchor or None,
+        "hasPreviousContinuityMemory": bool(previous_continuity_memory),
     }
 
     style_anchor = (
@@ -2573,6 +2672,9 @@ def clip_image(payload: ClipImageIn):
         system_prompt = (
             "You are a professional film director, cinematographer and visual production designer creating scenes for a cinematic music video. "
             "All scenes belong to the same continuous world and moment in time. "
+            "SCENE-TO-SCENE CONTINUITY: treat this frame as the next moment after the previous scene, preserving persistent world setup while allowing new action and framing. "
+            "PERSISTENT VS DELTA: keep location identity, lighting logic, palette, camera language, character identity, world state, and prop identity stable unless explicitly changed by scene payload; only action/emotion/framing progression should change. "
+            "NO COMPOSITION CLONE: do not copy previous frame composition exactly; continuity reference is soft and cinematic, not pose/framing lock. "
             "GLOBAL WORLD CONTINUITY: preserve consistency for time of day, lighting conditions, sky brightness and color, street light intensity, ambient brightness, atmospheric haze/fog, and environmental color grading. "
             "WEATHER CONSISTENCY: maintain consistent snow/rain/fog/wind, snow coverage, wet/dry surfaces, atmospheric particles, and visible breath in cold air when applicable. "
             "LOCATION WORLD LOCK: keep architecture style, building proportions, street layout, materials/textures, signage style, and cultural environment as the same location. "
@@ -2707,6 +2809,11 @@ def clip_image(payload: ClipImageIn):
             "Keep one world identity across clip shots: stable lighting logic, palette, atmosphere, weather, and material response."
         )
 
+        if previous_continuity_memory:
+            parts.append({
+                "text": "Previous scene continuity memory (persistent state to inherit; keep as soft continuity reference, not composition clone):\n" + json.dumps(previous_continuity_memory, ensure_ascii=False)
+            })
+
         scene_payload = {
             "sceneId": scene_id,
             "style": style,
@@ -2719,6 +2826,7 @@ def clip_image(payload: ClipImageIn):
             "sessionCharacterAnchor": session_character_anchor or None,
             "sessionLocationAnchor": session_location_anchor or None,
             "sessionStyleAnchor": session_style_anchor or None,
+            "previousContinuityMemory": previous_continuity_memory,
             "styleAnchor": style_anchor,
             "lightingAnchor": lighting_anchor,
             "locationAnchor": location_anchor,
