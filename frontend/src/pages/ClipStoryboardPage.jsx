@@ -328,6 +328,15 @@ function normalizeClipImageRefsPayload(refs = {}) {
   const propAnchorLabel = String(refs?.propAnchorLabel || "").trim();
   if (propAnchorLabel) normalized.propAnchorLabel = propAnchorLabel;
 
+  const sessionCharacterAnchor = String(refs?.sessionCharacterAnchor || "").trim();
+  if (sessionCharacterAnchor) normalized.sessionCharacterAnchor = sessionCharacterAnchor;
+
+  const sessionLocationAnchor = String(refs?.sessionLocationAnchor || "").trim();
+  if (sessionLocationAnchor) normalized.sessionLocationAnchor = sessionLocationAnchor;
+
+  const sessionStyleAnchor = String(refs?.sessionStyleAnchor || "").trim();
+  if (sessionStyleAnchor) normalized.sessionStyleAnchor = sessionStyleAnchor;
+
   return normalized;
 }
 
@@ -956,11 +965,17 @@ const scenarioBrainRefs = useMemo(() => {
     .find((e) => e.target === scenarioNode.id && (e.targetHandle || "") === "plan_in");
   if (!incomingPlanEdge?.source) return { character: [], location: [], style: [], props: [] };
   const brainInput = collectBrainPlannerInput({ brainNodeId: incomingPlanEdge.source, nodesList: nodes, edgesList: edges });
+  const brainNode = nodes.find((n) => n.id === incomingPlanEdge.source);
+  const planRefs = brainNode?.data?.scenePlan?.refs || {};
   return {
-    character: brainInput.characterRefs,
-    location: brainInput.locationRefs,
-    style: brainInput.styleRefs,
-    props: brainInput.propsRefs,
+    character: Array.isArray(planRefs.character) ? planRefs.character : brainInput.characterRefs,
+    location: Array.isArray(planRefs.location) ? planRefs.location : brainInput.locationRefs,
+    style: Array.isArray(planRefs.style) ? planRefs.style : brainInput.styleRefs,
+    props: Array.isArray(planRefs.props) ? planRefs.props : brainInput.propsRefs,
+    propAnchorLabel: planRefs.propAnchorLabel,
+    sessionCharacterAnchor: planRefs.sessionCharacterAnchor,
+    sessionLocationAnchor: planRefs.sessionLocationAnchor,
+    sessionStyleAnchor: planRefs.sessionStyleAnchor,
   };
 }, [edges, nodes, scenarioNode?.id]);
 
@@ -1489,6 +1504,9 @@ onParse: async (nodeId) => {
                     props: propsRefs,
                     style: styleRefs,
                     propAnchorLabel: String(out?.propAnchor?.label || "").trim() || undefined,
+                    sessionCharacterAnchor: String(out?.sessionWorldAnchors?.character || "").trim() || undefined,
+                    sessionLocationAnchor: String(out?.sessionWorldAnchors?.location || "").trim() || undefined,
+                    sessionStyleAnchor: String(out?.sessionWorldAnchors?.style || "").trim() || undefined,
                   },
                   settings: { scenarioKey, shootKey, styleKey, freezeStyle },
                 },
