@@ -596,6 +596,70 @@ def _sanitize_continuity_memory(memory: dict | None) -> dict[str, str] | None:
     return cleaned or None
 
 
+def _scene_value(scene: dict, keys: list[str], limit: int = 160) -> str:
+    for key in keys:
+        raw = scene.get(key)
+        if raw is None:
+            continue
+        text = _trim_continuity_value(raw, limit)
+        if text:
+            return text
+    return ""
+
+
+def _build_scene_delta(scene: dict, previous_scene: dict | None = None) -> str:
+    """Build a delta-focused scene summary (changes only, not full-world restatement)."""
+    prev = previous_scene or {}
+    parts: list[str] = []
+
+    action = _scene_value(scene, ["action", "actionBeat", "momentAction", "blocking", "shotPurpose", "reason"], 180)
+    emotion = _scene_value(scene, ["emotionalBeat", "emotion", "mood", "lyricFragment", "lipSyncText"], 150)
+    camera = _scene_value(scene, ["framingChange", "framing", "camera", "shotType", "sceneType"], 150)
+    motion = _scene_value(scene, ["motion", "cameraMove", "movement", "movementType"], 130)
+    intensity = _scene_value(scene, ["intensityProgression", "intensity", "energyShift", "energy", "dynamic"], 140)
+    crowd = _scene_value(scene, ["crowdVisibility", "crowdReaction", "audienceVisibility", "audienceReaction"], 140)
+    escalation = _scene_value(scene, ["eventEscalation", "eventState", "eventBeat", "worldState"], 160)
+
+    if action:
+        parts.append(f"action: {action}")
+
+    if emotion:
+        parts.append(f"emotion: {emotion}")
+
+    prev_camera = _scene_value(prev, ["framingChange", "framing", "camera", "shotType", "sceneType"], 150)
+    shot_change_detail = camera
+    if motion:
+        shot_change_detail = f"{shot_change_detail}; motion: {motion}" if shot_change_detail else f"motion: {motion}"
+    if shot_change_detail:
+        if prev_camera and camera and camera != prev_camera:
+            parts.append(f"shot change: {prev_camera} -> {shot_change_detail}")
+        else:
+            parts.append(f"shot change: {shot_change_detail}")
+
+    prev_intensity = _scene_value(prev, ["intensityProgression", "intensity", "energyShift", "energy", "dynamic"], 120)
+    if intensity:
+        if prev_intensity and intensity != prev_intensity:
+            parts.append(f"intensity: {prev_intensity} -> {intensity}")
+        else:
+            parts.append(f"intensity: {intensity}")
+
+    if crowd:
+        parts.append(f"crowd: {crowd}")
+
+    prev_escalation = _scene_value(prev, ["eventEscalation", "eventState", "eventBeat", "worldState"], 120)
+    if escalation:
+        if prev_escalation and escalation != prev_escalation:
+            parts.append(f"event escalation: {prev_escalation} -> {escalation}")
+        else:
+            parts.append(f"event escalation: {escalation}")
+
+    if parts:
+        return " | ".join(parts)
+
+    fallback_action = _scene_value(scene, ["visualDescription", "reason", "shotPurpose"], 180)
+    return f"action: {fallback_action}" if fallback_action else "action: continue next beat"
+
+
 def _extract_gemini_text(resp: dict) -> str:
     try:
         cands = resp.get("candidates") or []
@@ -2489,6 +2553,7 @@ If any of the required descriptive fields are returned in English, the output is
     scenes = plan.get("scenes") or []
 
     normalized_scenes = []
+    previous_scene = None
     previous_continuity_memory = None
     session_baseline = {
         "character": session_world_anchors["character"],
@@ -2527,13 +2592,14 @@ If any of the required descriptive fields are returned in English, the output is
                 session_world_anchors=session_world_anchors,
                 prop_anchor_label=prop_anchor_label,
             )
+        scene_delta = _build_scene_delta(s, previous_scene)
         scene_obj = {
             **s,
             "id": str(s.get("id") or f"scene_{idx + 1:03d}"),
             "start": start,
             "end": end,
             "prompt": visual_prompt or visual_desc,
-            "sceneDelta": visual_prompt or visual_desc,
+            "sceneDelta": scene_delta,
             "sceneText": visual_desc,
             "imagePrompt": visual_prompt,
             "videoPrompt": video_prompt,
@@ -2546,6 +2612,7 @@ If any of the required descriptive fields are returned in English, the output is
             "previousContinuityMemory": previous_continuity_memory,
         }
         normalized_scenes.append(scene_obj)
+        previous_scene = s
         previous_continuity_memory = continuity_memory
 
     return {
